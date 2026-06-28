@@ -6,19 +6,25 @@ import json
 import io
 import os
 from datetime import datetime
+import google.generativeai as genai
 
 st.set_page_config(page_title="CAASI Imports - Gestão", page_icon="🚢", layout="wide")
+
+# Configuração da Inteligência Artificial (Lê do Streamlit Secrets de forma segura)
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    ia_configurada = True
+except Exception:
+    ia_configurada = False
 
 # ==========================================
 # SISTEMA DE LOGIN E SEGURANÇA
 # ==========================================
 def check_password():
     """Retorna `True` se o utilizador inserir a senha correta."""
-    # Define a senha de acesso (Pode ser alterada futuramente)
     SENHA_SISTEMA = "caasi2026"
 
     def password_entered():
-        """Verifica se a senha inserida está correta."""
         if st.session_state["password"] == SENHA_SISTEMA:
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # Limpa a senha por segurança
@@ -28,15 +34,13 @@ def check_password():
     if st.session_state.get("password_correct"):
         return True
 
-    # Tela de Login (Se ainda não estiver logado)
+    # Tela de Login
     st.markdown("<h1 style='text-align: center; color: #1F4E78;'>🔐 CAASI Imports - Acesso Restrito</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center;'>Por favor, insira a senha para aceder ao sistema.</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.text_input(
-            "Senha", type="password", on_change=password_entered, key="password"
-        )
+        st.text_input("Senha", type="password", on_change=password_entered, key="password")
         if "password_correct" in st.session_state and not st.session_state["password_correct"]:
             st.error("😕 Senha incorreta. Tente novamente.")
     
@@ -44,13 +48,12 @@ def check_password():
 
 # Executa a verificação de login antes de carregar o resto da app
 if not check_password():
-    st.stop()  # Para a execução do código aqui se a senha não for inserida
+    st.stop()
 
 # ==========================================
 # CÓDIGO PRINCIPAL DA APP (Protegido)
 # ==========================================
 
-# Inicializar Variáveis na Sessão
 if 'carrinho' not in st.session_state:
     st.session_state['carrinho'] = []
 
@@ -58,12 +61,14 @@ if 'carrinho' not in st.session_state:
 DB_MASTERDATA = 'masterdata_caasi.xlsx'
 DB_ESTOQUE = 'estoque_caasi.xlsx'
 
-
 def carregar_dados(arquivo, colunas):
     if os.path.exists(arquivo):
         return pd.read_excel(arquivo)
     else:
-        return pd.DataFrame(columns=colunas)
+        # Se não existir, cria um DataFrame vazio e já salva o arquivo para a próxima vez
+        df_vazio = pd.DataFrame(columns=colunas)
+        df_vazio.to_excel(arquivo, index=False)
+        return df_vazio
 
 def salvar_dados(df, arquivo):
     df.to_excel(arquivo, index=False)
@@ -102,11 +107,9 @@ if menu == "1. 📊 Cotação e Precificação":
     with st.expander("📝 1. Dados do Produto", expanded=True):
         col_A, col_B, col_C = st.columns(3)
         with col_A:
-            # Puxa sugestões do Masterdata
-            produtos_cadastrados = df_masterdata['Nome_Produto'].tolist() if not df_masterdata.empty else ["Novo Produto..."]
+            produtos_cadastrados = df_masterdata['Nome_Produto'].tolist() if not df_masterdata.empty else []
             nome_produto = st.selectbox("Nome do Produto (Inglês)", ["Novo Produto..."] + produtos_cadastrados)
             
-            # Auto-preenchimento de NCM
             ncm_sugerido = "39262000"
             if nome_produto != "Novo Produto..." and not df_masterdata.empty:
                 ncm_sugerido = str(df_masterdata[df_masterdata['Nome_Produto'] == nome_produto]['NCM'].values[0])
@@ -115,7 +118,7 @@ if menu == "1. 📊 Cotação e Precificação":
                 nome_produto = st.text_input("Digite o nome do produto")
                 
             ncm = st.text_input("NCM", value=ncm_sugerido)
-            formato_venda = st.text_input("Formato (Unit, Set)", value="Unit")
+            formato_venda = st.text_input("Formato (Unit, Set, Pairs)", value="Unit")
         with col_B:
             descricao = st.text_area("Descrição Detalhada", value="Descrição em inglês para a Invoice...", height=115)
         with col_C:
@@ -147,7 +150,6 @@ if menu == "1. 📊 Cotação e Precificação":
             submit_button = st.form_submit_button("🔄 Calcular", type="primary", use_container_width=True)
 
     if submit_button:
-        # Matemática
         peso_total = peso_unitario * quantidade
         vmld_brl = custo_usd * quantidade * cambio
         frete_brl = frete_usd * cambio
@@ -167,9 +169,9 @@ if menu == "1. 📊 Cotação e Precificação":
         margem = (lucro / preco_venda) * 100 if preco_venda > 0 else 0
 
         st.session_state['ultimo_calculo'] = {
-            'NAME': nome_produto, 'DETAILED DESCRIPTION': descricao, 'REFERENCE': link_fornecedor,
+            'NAME': nome_produto, 'DETAILED DESCRIPTION': descricao, 'REFERENCE 1688.COM // ALIBABA': link_fornecedor,
             'NCM': ncm, 'Sales Format': formato_venda, 'Quantity': quantidade, 'UNIT WEIGHT (KG)': peso_unitario,
-            'UNIT PRICE': custo_usd, 'Total Product Cost': custo_usd*quantidade, 'DETAILS': detalhes_cores,
+            'UNIT PRICE': custo_usd, 'TARGET': '', 'Total Product Cost': custo_usd*quantidade, 'DETAILS': detalhes_cores,
             'Custo BR': round(custo_unit, 2), 'Margem %': round(margem, 2)
         }
 
@@ -187,15 +189,29 @@ if menu == "1. 📊 Cotação e Precificação":
         st.markdown("---")
         st.subheader("🛒 Carrinho de Importação (Purchase Order)")
         df_po = pd.DataFrame(st.session_state['carrinho'])
-        st.dataframe(df_po, use_container_width=True)
         
-        if st.button("🗑️ Limpar"):
-            st.session_state['carrinho'] = []
-            st.rerun()
+        colunas_exibicao = ['NAME', 'Quantity', 'UNIT PRICE', 'Total Product Cost', 'Margem %']
+        st.dataframe(df_po[colunas_exibicao], use_container_width=True)
+        
+        c_limpar, c_export = st.columns(2)
+        with c_limpar:
+            if st.button("🗑️ Limpar"):
+                st.session_state['carrinho'] = []
+                st.rerun()
+        with c_export:
+            colunas_exportacao = [
+                'NAME', 'DETAILED DESCRIPTION', 'REFERENCE 1688.COM // ALIBABA', 
+                'NCM', 'Sales Format', 'Quantity', 'UNIT WEIGHT (KG)', 
+                'UNIT PRICE', 'TARGET', 'Total Product Cost', 'DETAILS'
+            ]
+            df_export = df_po[colunas_exportacao]
             
-        buffer = io.BytesIO()
-        df_po.to_excel(buffer, index=False)
-        st.download_button("📥 Exportar Pedido (Excel) para China", buffer.getvalue(), "PO_CAASI.xlsx", type="primary")
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df_export.to_excel(writer, sheet_name='COMMERCIAL INVOICE', index=False)
+            
+            st.download_button("📥 Exportar Pedido (Excel) para China", buffer.getvalue(), "PO_CAASI.xlsx", 
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
 
 # ==========================================
 # MÓDULO 2: MASTERDATA (BANCO DE DADOS)
@@ -203,6 +219,26 @@ if menu == "1. 📊 Cotação e Precificação":
 elif menu == "2. 🗃️ Masterdata (Produtos)":
     st.title("🗃️ Gestor de Cadastros e NCMs")
     st.markdown("Base de conhecimento da CAASI. Registe os NCMs validados para não depender do chinês.")
+
+    # --- CONSULTOR IA PARA NCM ---
+    st.markdown("### 🤖 Consultor Fiscal IA (Buscador de NCM)")
+    if ia_configurada:
+        with st.expander("Não sabe o NCM? Descreva o produto e pergunte à IA:", expanded=False):
+            desc_produto = st.text_input("Descreva o produto (Ex: Isca artificial de silicone para pesca)")
+            if st.button("🔍 Consultar NCM e Regras", type="secondary"):
+                if desc_produto:
+                    with st.spinner("A IA está a analisar as regras aduaneiras..."):
+                        try:
+                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            prompt = f"Aja como um Despachante Aduaneiro Sênior no Brasil. O cliente quer importar o seguinte produto: '{desc_produto}'. Qual é a classificação fiscal (NCM) mais adequada? Responda de forma curta e direta com o NCM de 8 dígitos e uma breve justificativa. Indique também se exige LI."
+                            resposta = model.generate_content(prompt)
+                            st.info(resposta.text)
+                        except Exception as e:
+                            st.error(f"Erro ao conectar com a IA: {e}")
+                else:
+                    st.warning("Escreva o nome do produto primeiro.")
+    else:
+        st.warning("IA não conectada. Verifique os Secrets do Streamlit.")
 
     with st.form("form_masterdata"):
         col1, col2 = st.columns(2)
@@ -228,7 +264,7 @@ elif menu == "2. 🗃️ Masterdata (Produtos)":
 elif menu == "3. 🛠️ Portal de XML (Bling)":
     st.title("🛠️ Portal de Integração Bling")
     
-    aba1, aba2 = st.tabs(["1️⃣ Importação Formal (Corretor de Despachante)", "2️⃣ Importação Simplificada (Gerador via Planilha)"])
+    aba1, aba2 = st.tabs(["1️⃣ Importação Formal (Corretor)", "2️⃣ Importação Simplificada (Gerador via Planilha)"])
     
     # -- ABA 1: HIGIENIZADOR DE XML --
     with aba1:
@@ -243,7 +279,6 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
 
             soma_vBC, soma_vICMS = 0.0, 0.0
             
-            # Auditoria NCM e Correções
             for det in root.findall('.//nfe:det', ns):
                 imposto = det.find('nfe:imposto', ns)
                 if imposto is not None:
@@ -269,7 +304,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
 
     # -- ABA 2: GERADOR DE SIMPLIFICADA (DIR/UPS) --
     with aba2:
-        st.markdown("Arraste a **Commercial Invoice (Excel)** da China para gerar o XML com 60% de II + ICMS.")
+        st.markdown("Arraste a **Commercial Invoice (Excel)** para gerar o XML com 60% de II + ICMS.")
         uploaded_csv = st.file_uploader("Arquivo Excel (Invoice)", type=['xlsx', 'csv'])
         
         c1, c2, c3 = st.columns(3)
@@ -277,11 +312,10 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
         dir_frete = c2.number_input("Frete/Seguro Total (BRL)", value=0.0)
         dir_icms = c3.number_input("Alíquota ICMS Estado (%)", value=17.0) / 100
         
-        if uploaded_csv and st.button("🚀 Processar e Gerar XML Automático", type="primary"):
+        if uploaded_csv and st.button("🚀 Processar e Gerar XML", type="primary"):
             try:
-                df_inv = pd.read_excel(uploaded_csv)
+                df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
                 
-                # Tenta localizar a linha onde começa a tabela de produtos
                 start_row = -1
                 for i, row in df_inv.iterrows():
                     if 'DESCRIPTION OF GOODS' in str(row.values).upper() or 'NAME' in str(row.values).upper():
@@ -289,13 +323,11 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                         break
                 
                 if start_row != -1:
-                    df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1)
+                    df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
                 
-                # Procura colunas chave
                 cols = [str(c).upper().strip() for c in df_inv.columns]
                 df_inv.columns = cols
                 
-                # Identifica as colunas certas dinamicamente
                 col_nome = [c for c in cols if 'NAME' in c or 'DESCRIPTION' in c][0]
                 col_ncm = [c for c in cols if 'HS CODE' in c or 'NCM' in c][0]
                 col_qty = [c for c in cols if 'QTY' in c or 'QUANTITY' in c][0]
@@ -303,14 +335,10 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
 
                 df_inv = df_inv.dropna(subset=[col_qty, col_total])
                 
-                # Geração Estrutura XML Básica NFe 4.0
                 nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
                 infNFe = ET.SubElement(nfe, "infNFe", Id="NFeGeradaCaasi", versao="4.00")
                 
-                soma_prod_brl = 0
-                soma_bc_icms = 0
-                soma_icms = 0
-                soma_ii = 0
+                soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = 0
                 
                 for idx, row in df_inv.iterrows():
                     det = ET.SubElement(infNFe, "det", nItem=str(idx+1))
@@ -326,9 +354,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                     vProd_brl = vProd_usd * dir_dolar
                     ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
                     
-                    # Cálculo DIR: 60% II + ICMS por dentro
                     vII = vProd_brl * 0.60
-                    # Rateio básico do frete para BC do ICMS
                     rateio_frete = dir_frete / len(df_inv) 
                     base_icms = (vProd_brl + vII + rateio_frete) / (1 - dir_icms)
                     vICMS = base_icms * dir_icms
@@ -354,45 +380,65 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                     ET.SubElement(ii_tag, "vII").text = f"{vII:.2f}"
                     ET.SubElement(ii_tag, "vIOF").text = "0.00"
 
-                # Fechar Totais
                 total = ET.SubElement(infNFe, "total")
                 icmstot = ET.SubElement(total, "ICMSTot")
                 ET.SubElement(icmstot, "vBC").text = f"{soma_bc_icms:.2f}"
                 ET.SubElement(icmstot, "vICMS").text = f"{soma_icms:.2f}"
                 ET.SubElement(icmstot, "vProd").text = f"{soma_prod_brl:.2f}"
                 ET.SubElement(icmstot, "vII").text = f"{soma_ii:.2f}"
-                ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms):.2f}" # Aproximado para rascunho
+                ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms):.2f}"
 
                 xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
-                st.success("✅ Matriz XML Simplificada Gerada com Sucesso! Faça a importação no Bling e finalize o Destinatário.")
+                st.success("✅ Matriz XML Gerada com Sucesso!")
                 st.download_button("📥 Baixar XML Simplificado (DIR)", xml_saida, "XML_Simplificada_UPS.xml", "text/xml", type="primary")
 
             except Exception as e:
-                st.error(f"Erro na leitura da planilha. Garanta que é o arquivo Excel padrão da China. Detalhe: {e}")
+                st.error(f"Erro ao gerar XML: Verifique se a planilha é o padrão. Detalhe: {e}")
 
 # ==========================================
 # MÓDULO 4: CONTROLE DE ESTOQUE
 # ==========================================
 elif menu == "4. 📦 Controlo de Estoque":
     st.title("📦 Inventário e Entradas/Saídas")
-    st.markdown("Controle as quantidades disponíveis. Alimente via XML ou baixe com vendas do Mercado Pago.")
+    st.markdown("Controle as quantidades disponíveis.")
+
+    # --- IMPORTAÇÃO MARCO ZERO (T0) ---
+    with st.expander("🚀 Importar Estoque Inicial (Marco Zero - T0)", expanded=False):
+        st.markdown("Suba a sua planilha atual de estoque (Excel ou CSV). O sistema assumirá este como o saldo inicial.")
+        arquivo_t0 = st.file_uploader("Planilha de Estoque Inicial", type=['xlsx', 'csv'], key="t0_upload")
+        
+        if arquivo_t0 and st.button("Carregar Saldo Inicial T0", type="primary"):
+            try:
+                df_t0 = pd.read_excel(arquivo_t0) if arquivo_t0.name.endswith('.xlsx') else pd.read_csv(arquivo_t0)
+                col_prod = next((c for c in df_t0.columns if 'PRODUTO' in str(c).upper() or 'DESCRI' in str(c).upper() or 'NOME' in str(c).upper()), None)
+                col_qtd = next((c for c in df_t0.columns if 'QUANT' in str(c).upper() or 'QTD' in str(c).upper()), None)
+                
+                if col_prod and col_qtd:
+                    for _, row in df_t0.iterrows():
+                        novo_mov = pd.DataFrame([[datetime.now().strftime("%d/%m/%Y"), "SKU-T0", row[col_prod], "Entrada (T0 Inicial)", row[col_qtd], "Carga Inicial de Sistema"]], columns=df_estoque.columns)
+                        df_estoque = pd.concat([df_estoque, novo_mov], ignore_index=True)
+                    salvar_dados(df_estoque, DB_ESTOQUE)
+                    st.success("✅ Estoque Marco Zero carregado com sucesso!")
+                    st.rerun()
+                else:
+                    st.error("A planilha precisa ter colunas com nomes parecidos com 'Produto' e 'Quantidade'.")
+            except Exception as e:
+                st.error(f"Erro ao ler a planilha: {e}")
 
     c_ent, c_sai = st.columns(2)
     with c_ent:
         st.subheader("Registrar Movimentação")
         with st.form("form_movimento"):
             data_mov = datetime.now().strftime("%d/%m/%Y")
-            
             prods = df_masterdata['Nome_Produto'].tolist() if not df_masterdata.empty else ["Cadastre produtos no Masterdata"]
             prod_sel = st.selectbox("Produto", prods)
-            
             tipo_mov = st.radio("Tipo", ["Entrada (Importação)", "Saída (Venda)"], horizontal=True)
             qtd_mov = st.number_input("Quantidade", min_value=1, step=1)
             obs = st.text_input("Observação (Ex: Venda ML, Chegada UPS)")
             
             if st.form_submit_button("Lançar no Estoque", type="primary"):
                 mult = 1 if tipo_mov.startswith("Ent") else -1
-                novo_mov = pd.DataFrame([[data_mov, "SKU", prod_sel, tipo_mov, qtd_mov * mult, obs]], columns=df_estoque.columns)
+                novo_mov = pd.DataFrame([[data_mov, "SKU-REG", prod_sel, tipo_mov, qtd_mov * mult, obs]], columns=df_estoque.columns)
                 df_estoque = pd.concat([df_estoque, novo_mov], ignore_index=True)
                 salvar_dados(df_estoque, DB_ESTOQUE)
                 st.success("Estoque atualizado!")
@@ -402,21 +448,18 @@ elif menu == "4. 📦 Controlo de Estoque":
         st.subheader("Baixa em Lote (Mercado Livre/Bling)")
         arquivo_vendas = st.file_uploader("Subir Relatório de Vendas (CSV/Excel)", type=['csv', 'xlsx'])
         if arquivo_vendas:
-            st.info("Funcionalidade Pronta para Mapeamento: O sistema lerá os SKUs vendidos e fará a baixa automática de todos de uma vez.")
+            st.info("Funcionalidade pronta para mapeamento: O sistema lerá os SKUs vendidos e fará a baixa automática de todos de uma vez.")
 
     st.markdown("---")
     st.subheader("📊 Posição Atual do Estoque")
-    
     if not df_estoque.empty:
-        # Agrupa pelo nome do produto somando as quantidades
         saldo_atual = df_estoque.groupby('Produto')['Quantidade'].sum().reset_index()
         saldo_atual.columns = ['Produto', 'Saldo Disponível']
-        
         c1, c2 = st.columns([2, 3])
         with c1:
             st.dataframe(saldo_atual, use_container_width=True)
         with c2:
             st.markdown("**Histórico Recente de Movimentações**")
-            st.dataframe(df_estoque.tail(10).iloc[::-1], use_container_width=True) # Mostra os ultimos 10 invertidos
+            st.dataframe(df_estoque.tail(10).iloc[::-1], use_container_width=True)
     else:
         st.info("Nenhuma movimentação registada no momento.")

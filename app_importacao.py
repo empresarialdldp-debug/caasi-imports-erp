@@ -342,6 +342,11 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
         col_imp1, col_imp2 = st.columns(2)
         dir_icms = col_imp1.number_input("ICMS do Estado (%)", value=18.0) / 100
         dir_outras = col_imp2.number_input("Outras Despesas / Serv. Administrativos DHL/UPS (BRL)", value=91.08)
+
+        if 'numero_nfe_atual' not in st.session_state:
+            st.session_state['numero_nfe_atual'] = 100009
+            
+        numero_nfe = st.number_input("Número da NFe (Inicia em 100009)", value=st.session_state['numero_nfe_atual'], step=1)
         
         if uploaded_csv and uploaded_dir and uploaded_recibo:
             if st.button("🚀 Extrair Dados Aduaneiros e Gerar XML (Padrão Bling)", type="primary", use_container_width=True):
@@ -445,7 +450,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(ide, "natOp").text = "Compra de mercadorias (Importacao)"
                             ET.SubElement(ide, "mod").text = "55"
                             ET.SubElement(ide, "serie").text = "1"
-                            ET.SubElement(ide, "nNF").text = "100009"
+                            ET.SubElement(ide, "nNF").text = str(numero_nfe)
                             ET.SubElement(ide, "tpNF").text = "0" # 0 = Entrada (Importação)
                             ET.SubElement(ide, "idDest").text = "3" # 3 = Operação com exterior
                             ET.SubElement(ide, "tpImp").text = "1"

@@ -5,12 +5,19 @@ import urllib.request
 import json
 import io
 import os
+import re
 from datetime import datetime
 import google.generativeai as genai
 
+# Leitor de PDF necessário para a DIR e Recibos (Nota de Débito)
+try:
+    import PyPDF2
+    pypdf_installed = True
+except ImportError:
+    pypdf_installed = False
+
 st.set_page_config(page_title="CAASI Imports - Gestão", page_icon="🚢", layout="wide")
 
-# Configuração da Inteligência Artificial com diagnóstico de erro
 erro_ia_msg = ""
 try:
     if "GEMINI_API_KEY" in st.secrets:
@@ -96,7 +103,6 @@ try:
 except:
     dolar_hoje = 5.35 # Fallback
 
-# Mostra o erro da IA no topo do sistema se houver problema
 if not ia_configurada:
     st.error(f"⚠️ A Inteligência Artificial está desativada! Motivo: {erro_ia_msg}")
 
@@ -105,7 +111,7 @@ if not ia_configurada:
 # ==========================================
 if menu == "1. 📊 Cotação e Precificação":
     st.title("📊 Cotação, Precificação e Mercado")
-    st.markdown("Importe cotações, analise o mercado com IA e calcule a viabilidade exata.")
+    st.markdown("Importe cotações antigas, analise o mercado com IA e calcule a viabilidade exata.")
 
     # --- 1. IMPORTAR PLANILHA DE COTAÇÕES ---
     with st.expander("📂 1. Importar Planilha de Cotação (Validação)", expanded=False):
@@ -123,7 +129,7 @@ if menu == "1. 📊 Cotação e Precificação":
     with st.expander("🧠 2. Inteligência de Mercado (Mercado Livre)", expanded=True):
         st.markdown("Digite o nome do produto livremente e peça à IA para analisar os preços e concorrência no Brasil.")
         
-        # Digitação 100% livre e direta pelo Marcelo
+        # Digitação livre e direta do Marcelo
         nome_produto = st.text_input("Nome do Produto a ser cotado:", placeholder="Ex: Capa de Silicone iPhone 15, Lanterna Tática X900...")
         
         col_pesq1, col_pesq2 = st.columns(2)
@@ -134,7 +140,6 @@ if menu == "1. 📊 Cotação e Precificação":
                 elif ia_configurada:
                     with st.spinner(f"A IA está pesquisando a base do Mercado Livre para '{nome_produto}'..."):
                         try:
-                            # Prompt inteligente para a IA buscar os dados do mercado
                             model = genai.GenerativeModel('gemini-1.5-pro')
                             prompt = f"""
                             Aja como o Diretor de Pricing da CAASI Imports, especialista no Mercado Livre Brasil.
@@ -213,7 +218,7 @@ if menu == "1. 📊 Cotação e Precificação":
         st.session_state['ultimo_calculo'] = {
             'NAME': nome_produto, 'DETAILED DESCRIPTION': descricao, 'REFERENCE': link_fornecedor,
             'NCM': ncm, 'Sales Format': formato_venda, 'Quantity': quantidade, 'UNIT WEIGHT (KG)': peso_unitario,
-            'UNIT PRICE': custo_usd, 'TARGET': '', 'Total Product Cost': custo_usd*quantidade, 'DETAILS': detalhes_cores,
+            'UNIT PRICE': custo_usd, 'TARGET': '', 'Total Product Cost': custo_usd*quantidade,
             'Custo BR': round(custo_unit, 2), 'Margem %': round(margem, 2)
         }
 
@@ -244,6 +249,9 @@ if menu == "1. 📊 Cotação e Precificação":
                 df_po.drop(columns=['Custo BR', 'Margem %']).to_excel(writer, sheet_name='INVOICE', index=False)
             st.download_button("📥 Exportar Pedido (Excel) para China", buffer.getvalue(), "PO_CAASI.xlsx", type="primary", use_container_width=True)
 
+# ==========================================
+# MÓDULO 2: MASTERDATA (BANCO DE DADOS)
+# ==========================================
 elif menu == "2. 🗃️ Masterdata (Produtos)":
     st.title("🗃️ Gestor de Cadastros e NCMs")
     st.markdown("Base de conhecimento da CAASI. Registe os NCMs validados.")
@@ -280,9 +288,12 @@ elif menu == "2. 🗃️ Masterdata (Produtos)":
 
     st.dataframe(df_masterdata, use_container_width=True)
 
+# ==========================================
+# MÓDULO 3: PORTAL DE ENTRADA XML
+# ==========================================
 elif menu == "3. 🛠️ Portal de XML (Bling)":
     st.title("🛠️ Portal de Integração Bling")
-    aba1, aba2 = st.tabs(["1️⃣ Corretor de XML (Despachante)", "2️⃣ Gerador XML (Simplificada)"])
+    aba1, aba2 = st.tabs(["1️⃣ Corretor de XML (Despachante)", "2️⃣ Gerador XML Inteligente (Simplificada DIR)"])
     
     with aba1:
         st.markdown("Arraste o XML do Despachante para corrigir arredondamentos (Erro 531 e 932).")
@@ -317,87 +328,176 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
             st.download_button("📥 Baixar XML Higienizado", xml_str, "XML_Bling.xml", "text/xml")
 
     with aba2:
-        st.markdown("Gera XML para Bling via Invoice da China (60% II + ICMS por dentro).")
-        uploaded_csv = st.file_uploader("Excel (Invoice)", type=['xlsx', 'csv'])
-        c1, c2, c3 = st.columns(3)
-        dir_dolar = c1.number_input("Dólar (DIR)", value=5.3338, format="%.4f")
-        dir_frete = c2.number_input("Frete/Seguro (BRL)", value=0.0)
-        dir_icms = c3.number_input("ICMS Estado (%)", value=17.0) / 100
+        st.markdown("### Geração Profissional de XML para Importação Simplificada (Conforme DIR)")
+        st.markdown("A Inteligência Artificial lerá a DIR e o Recibo de Impostos (PDFs) e os cruzará com a Invoice da China, garantindo que o XML gerado tenha os valores aduaneiros e a Tag `<DI>` perfeitos, prontos para a SEFAZ e Bling.")
         
-        if uploaded_csv and st.button("🚀 Gerar XML Automático", type="primary"):
-            try:
-                df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
-                start_row = -1
-                for i, row in df_inv.iterrows():
-                    if 'DESCRIPTION OF GOODS' in str(row.values).upper() or 'NAME' in str(row.values).upper():
-                        start_row = i
-                        break
-                if start_row != -1:
-                    df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
-                
-                cols = [str(c).upper().strip() for c in df_inv.columns]
-                df_inv.columns = cols
-                col_nome = [c for c in cols if 'NAME' in c or 'DESCRIPTION' in c][0]
-                col_ncm = [c for c in cols if 'HS CODE' in c or 'NCM' in c][0]
-                col_qty = [c for c in cols if 'QTY' in c or 'QUANTITY' in c][0]
-                col_total = [c for c in cols if 'TOTAL' in c and 'COST' in c or 'AMOUNT' in c][0]
-                df_inv = df_inv.dropna(subset=[col_qty, col_total])
-                
-                nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
-                infNFe = ET.SubElement(nfe, "infNFe", Id="NFeGeradaCaasi", versao="4.00")
-                soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = 0
-                
-                for idx, row in df_inv.iterrows():
-                    det = ET.SubElement(infNFe, "det", nItem=str(idx+1))
-                    prod = ET.SubElement(det, "prod")
-                    ET.SubElement(prod, "cProd").text = f"IMP-{idx+1:03d}"
-                    ET.SubElement(prod, "xProd").text = str(row[col_nome])[:120]
-                    ET.SubElement(prod, "NCM").text = str(row[col_ncm]).replace('.', '').strip()[:8]
-                    ET.SubElement(prod, "CFOP").text = "3102"
-                    ET.SubElement(prod, "uCom").text = "UN"
-                    ET.SubElement(prod, "qCom").text = str(row[col_qty])
-                    
-                    vProd_usd = float(row[col_total])
-                    vProd_brl = vProd_usd * dir_dolar
-                    ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
-                    
-                    vII = vProd_brl * 0.60
-                    rateio_frete = dir_frete / len(df_inv) 
-                    base_icms = (vProd_brl + vII + rateio_frete) / (1 - dir_icms)
-                    vICMS = base_icms * dir_icms
-                    
-                    soma_prod_brl += vProd_brl; soma_bc_icms += base_icms; soma_icms += vICMS; soma_ii += vII
-                    
-                    imposto = ET.SubElement(det, "imposto")
-                    icms = ET.SubElement(imposto, "ICMS")
-                    icmssn = ET.SubElement(icms, "ICMSSN900")
-                    ET.SubElement(icmssn, "orig").text = "1"
-                    ET.SubElement(icmssn, "CSOSN").text = "900"
-                    ET.SubElement(icmssn, "modBC").text = "3"
-                    ET.SubElement(icmssn, "vBC").text = f"{base_icms:.2f}"
-                    ET.SubElement(icmssn, "pICMS").text = f"{dir_icms*100:.2f}"
-                    ET.SubElement(icmssn, "vICMS").text = f"{vICMS:.2f}"
-                    
-                    ii_tag = ET.SubElement(imposto, "II")
-                    ET.SubElement(ii_tag, "vBC").text = f"{vProd_brl:.2f}"
-                    ET.SubElement(ii_tag, "vDespAdu").text = "0.00"
-                    ET.SubElement(ii_tag, "vII").text = f"{vII:.2f}"
-                    ET.SubElement(ii_tag, "vIOF").text = "0.00"
+        if not pypdf_installed:
+            st.error("⚠️ ERRO CRÍTICO: O sistema precisa do pacote 'PyPDF2' para ler PDFs. Adicione 'PyPDF2' ao arquivo requirements.txt no GitHub.")
+        
+        col_up1, col_up2, col_up3 = st.columns(3)
+        uploaded_csv = col_up1.file_uploader("1. Excel (Invoice)", type=['xlsx', 'csv'])
+        uploaded_dir = col_up2.file_uploader("2. PDF da DIR", type=['pdf'])
+        uploaded_recibo = col_up3.file_uploader("3. PDF do Recibo/Imposto", type=['pdf'])
+        
+        dir_icms = st.number_input("ICMS do Estado (%)", value=18.0) / 100
+        
+        if uploaded_csv and uploaded_dir and uploaded_recibo:
+            if st.button("🚀 Extrair Dados Aduaneiros e Gerar XML", type="primary", use_container_width=True):
+                if not ia_configurada:
+                    st.error("A Inteligência Artificial precisa estar configurada para extrair os dados dos PDFs. Verifique os Secrets.")
+                else:
+                    try:
+                        with st.spinner("A IA está a extrair o Número da DIR, Dólar PTAX, Frete e Impostos pagos..."):
+                            # 1. Extrair Texto dos PDFs com PyPDF2
+                            texto_dir = ""
+                            leitor_dir = PyPDF2.PdfReader(uploaded_dir)
+                            for page in leitor_dir.pages: texto_dir += page.extract_text() + "\n"
+                            
+                            texto_recibo = ""
+                            leitor_recibo = PyPDF2.PdfReader(uploaded_recibo)
+                            for page in leitor_recibo.pages: texto_recibo += page.extract_text() + "\n"
+                            
+                            # 2. IA Audita os Documentos
+                            model = genai.GenerativeModel('gemini-1.5-pro')
+                            prompt = f"""
+                            Aja como um auditor fiscal especialista em comércio exterior. Extraia os dados numéricos cruciais dos seguintes textos extraídos da DIR e Recibo de Importação (FedEx/UPS/DHL).
+                            TEXTO DA DIR E RECIBO:
+                            {texto_dir[:3000]}
+                            {texto_recibo[:3000]}
+                            
+                            Retorne APENAS um JSON válido e limpo com as seguintes chaves (sem formatação extra):
+                            "numero_dir": (string, pegue os dígitos numéricos da DIR/Declaração. Ex: "260024703330"),
+                            "data_desembaraco": (string, data do registro formato YYYY-MM-DD. Ex: "2026-02-06"),
+                            "local_desembaraco": (string, pegue o local, Ex: "VIRACOPOS"),
+                            "uf_desembaraco": (string, UF do local de desembaraço, Ex: "SP"),
+                            "valor_frete_brl": (float, Valor Frete em R$, sem símbolo. Ex: 1174.26),
+                            "valor_ii_brl": (float, Imposto Importação I.I. pago em R$. Ex: 2247.25),
+                            "taxa_dolar": (float, calcule com alta precisão dividindo o Valor Total Remessa BRL pelo Valor Total Remessa USD. Ex: 2571.16 / 489.0)
+                            """
+                            resposta = model.generate_content(prompt)
+                            
+                            # Limpar a resposta da IA para garantir que o JSON é lido perfeitamente
+                            json_str = resposta.text
+                            match = re.search(r'```json(.*?)```', json_str, re.DOTALL)
+                            if match: json_str = match.group(1)
+                            else: json_str = json_str.replace("```", "")
+                            
+                            dados_dir = json.loads(json_str.strip())
+                            
+                            st.success(f"**Dados da DIR Extraídos pela IA:** Número: {dados_dir['numero_dir']} | I.I. Pago: R$ {dados_dir['valor_ii_brl']} | Frete: R$ {dados_dir['valor_frete_brl']} | Dólar: {dados_dir['taxa_dolar']:.4f}")
+                            
+                            # 3. Cruzar com a Planilha (Excel Invoice)
+                            df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
+                            start_row = -1
+                            for i, row in df_inv.iterrows():
+                                if 'DESCRIPTION OF GOODS' in str(row.values).upper() or 'NAME' in str(row.values).upper():
+                                    start_row = i
+                                    break
+                            if start_row != -1:
+                                df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
+                            
+                            cols = [str(c).upper().strip() for c in df_inv.columns]
+                            df_inv.columns = cols
+                            col_nome = [c for c in cols if 'NAME' in c or 'DESCRIPTION' in c][0]
+                            col_ncm = [c for c in cols if 'HS CODE' in c or 'NCM' in c][0]
+                            col_qty = [c for c in cols if 'QTY' in c or 'QUANTITY' in c][0]
+                            col_total = [c for c in cols if 'TOTAL' in c and 'COST' in c or 'AMOUNT' in c][0]
+                            
+                            df_inv = df_inv.dropna(subset=[col_qty, col_total])
+                            
+                            # Totalização para fazer o Rateio Exato
+                            total_produtos_usd = df_inv[col_total].astype(float).sum()
+                            
+                            nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
+                            infNFe = ET.SubElement(nfe, "infNFe", Id="NFeGeradaCaasi", versao="4.00")
+                            soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = soma_frete = 0
+                            
+                            for idx, row in df_inv.iterrows():
+                                vProd_usd = float(row[col_total])
+                                
+                                # A Mágica: Rateio Exato (Proporção do item dentro da nota)
+                                proporcao = vProd_usd / total_produtos_usd if total_produtos_usd > 0 else 0
+                                
+                                vProd_brl = vProd_usd * float(dados_dir['taxa_dolar'])
+                                rateio_frete = float(dados_dir['valor_frete_brl']) * proporcao
+                                vII = float(dados_dir['valor_ii_brl']) * proporcao
+                                
+                                # Cálculo da Base do ICMS (Por Dentro) e Valor do ICMS
+                                base_icms = (vProd_brl + vII + rateio_frete) / (1 - dir_icms)
+                                vICMS = base_icms * dir_icms
+                                
+                                # Início das Tags XML NFe 4.0
+                                det = ET.SubElement(infNFe, "det", nItem=str(idx+1))
+                                prod = ET.SubElement(det, "prod")
+                                ET.SubElement(prod, "cProd").text = f"IMP-{idx+1:03d}"
+                                ET.SubElement(prod, "xProd").text = str(row[col_nome])[:120]
+                                ET.SubElement(prod, "NCM").text = str(row[col_ncm]).replace('.', '').strip()[:8]
+                                ET.SubElement(prod, "CFOP").text = "3102"
+                                ET.SubElement(prod, "uCom").text = "UN"
+                                ET.SubElement(prod, "qCom").text = str(row[col_qty])
+                                ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
+                                ET.SubElement(prod, "vFrete").text = f"{rateio_frete:.2f}"
+                                
+                                # --- O MAIS IMPORTANTE: TAG DA DIR (Declaração de Importação) ---
+                                di = ET.SubElement(prod, "DI")
+                                ET.SubElement(di, "nDI").text = str(dados_dir['numero_dir'])
+                                ET.SubElement(di, "dDI").text = str(dados_dir['data_desembaraco'])
+                                ET.SubElement(di, "xLocDesemb").text = str(dados_dir['local_desembaraco']).strip()
+                                ET.SubElement(di, "UFDesemb").text = str(dados_dir['uf_desembaraco']).strip()
+                                ET.SubElement(di, "dDesemb").text = str(dados_dir['data_desembaraco'])
+                                ET.SubElement(di, "tpViaTransp").text = "4" # 4 = Aéreo (Padrão Remessa Expressa)
+                                ET.SubElement(di, "vAFRMM").text = "0.00"
+                                ET.SubElement(di, "tpIntermedio").text = "1" # 1 = Importação por conta própria
+                                ET.SubElement(di, "CNPJ").text = "44102562000111" # CNPJ da Caasi Imports
+                                ET.SubElement(di, "UFTerceiro").text = str(dados_dir['uf_desembaraco']).strip()
+                                
+                                adi = ET.SubElement(di, "adi")
+                                ET.SubElement(adi, "nAdicao").text = str(idx+1)
+                                ET.SubElement(adi, "nSeqAdic").text = "1"
+                                ET.SubElement(adi, "cFabricante").text = "999" # Não aplicável
+                                # ------------------------------------------------------------------
+                                
+                                soma_prod_brl += vProd_brl
+                                soma_bc_icms += base_icms
+                                soma_icms += vICMS
+                                soma_ii += vII
+                                soma_frete += rateio_frete
+                                
+                                imposto = ET.SubElement(det, "imposto")
+                                icms = ET.SubElement(imposto, "ICMS")
+                                icmssn = ET.SubElement(icms, "ICMSSN900")
+                                ET.SubElement(icmssn, "orig").text = "1"
+                                ET.SubElement(icmssn, "CSOSN").text = "900"
+                                ET.SubElement(icmssn, "modBC").text = "3"
+                                ET.SubElement(icmssn, "vBC").text = f"{base_icms:.2f}"
+                                ET.SubElement(icmssn, "pICMS").text = f"{dir_icms*100:.2f}"
+                                ET.SubElement(icmssn, "vICMS").text = f"{vICMS:.2f}"
+                                
+                                ii_tag = ET.SubElement(imposto, "II")
+                                ET.SubElement(ii_tag, "vBC").text = f"{vProd_brl:.2f}"
+                                ET.SubElement(ii_tag, "vDespAdu").text = "0.00"
+                                ET.SubElement(ii_tag, "vII").text = f"{vII:.2f}"
+                                ET.SubElement(ii_tag, "vIOF").text = "0.00"
 
-                total = ET.SubElement(infNFe, "total")
-                icmstot = ET.SubElement(total, "ICMSTot")
-                ET.SubElement(icmstot, "vBC").text = f"{soma_bc_icms:.2f}"
-                ET.SubElement(icmstot, "vICMS").text = f"{soma_icms:.2f}"
-                ET.SubElement(icmstot, "vProd").text = f"{soma_prod_brl:.2f}"
-                ET.SubElement(icmstot, "vII").text = f"{soma_ii:.2f}"
-                ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms):.2f}"
+                            total = ET.SubElement(infNFe, "total")
+                            icmstot = ET.SubElement(total, "ICMSTot")
+                            ET.SubElement(icmstot, "vBC").text = f"{soma_bc_icms:.2f}"
+                            ET.SubElement(icmstot, "vICMS").text = f"{soma_icms:.2f}"
+                            ET.SubElement(icmstot, "vProd").text = f"{soma_prod_brl:.2f}"
+                            ET.SubElement(icmstot, "vFrete").text = f"{soma_frete:.2f}"
+                            ET.SubElement(icmstot, "vII").text = f"{soma_ii:.2f}"
+                            ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms + soma_frete):.2f}"
 
-                xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
-                st.success("✅ Matriz XML Gerada com Sucesso!")
-                st.download_button("📥 Baixar XML", xml_saida, "XML_Simplificada.xml", "text/xml", type="primary")
-            except Exception as e:
-                st.error(f"Erro ao gerar XML: {e}")
+                            xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
+                            st.success(f"✅ Matriz XML Integrada (DIR {dados_dir['numero_dir']}) Gerada com Sucesso!")
+                            st.download_button("📥 Baixar XML para Bling", xml_saida, f"XML_CAASI_{dados_dir['numero_dir']}.xml", "text/xml", type="primary")
 
+                    except Exception as e:
+                        st.error(f"Erro Crítico ao gerar o XML Integrado: Verifique os PDFs ou a Planilha. Detalhe técnico: {e}")
+
+# ==========================================
+# MÓDULO 4: CONTROLE DE ESTOQUE
+# ==========================================
 elif menu == "4. 📦 Controlo de Estoque":
     st.title("📦 Inventário e Entradas/Saídas")
 
@@ -448,6 +548,9 @@ elif menu == "4. 📦 Controlo de Estoque":
         c1.dataframe(saldo, use_container_width=True)
         c2.dataframe(df_estoque.tail(10).iloc[::-1], use_container_width=True)
 
+# ==========================================
+# MÓDULO 5: INTELIGÊNCIA MERCADO LIVRE
+# ==========================================
 elif menu == "5. 🟡 Inteligência Mercado Livre":
     st.title("🟡 Painel de Inteligência - Mercado Livre")
     st.markdown("Conecte a conta do Mercado Livre para análise de Vendas, Estoque FULL e Campanhas via IA.")
@@ -499,253 +602,3 @@ ML_SECRET_KEY = "sua_secret_key_aqui"
                     st.error(f"Erro ao gerar análise da IA: {e}")
         else:
             st.warning("IA não configurada no Secrets. O cérebro do sistema está desativado.")
-# ==========================================
-# MÓDULO 2: MASTERDATA (BANCO DE DADOS)
-# ==========================================
-elif menu == "2. 🗃️ Masterdata (Produtos)":
-    st.title("🗃️ Gestor de Cadastros e NCMs")
-    st.markdown("Base de conhecimento da CAASI. Registe os NCMs validados para não depender do chinês.")
-
-    # --- CONSULTOR IA PARA NCM ---
-    st.markdown("### 🤖 Consultor Fiscal IA (Buscador de NCM)")
-    if ia_configurada:
-        with st.expander("Não sabe o NCM? Descreva o produto e pergunte à IA:", expanded=False):
-            desc_produto = st.text_input("Descreva o produto (Ex: Isca artificial de silicone para pesca)")
-            if st.button("🔍 Consultar NCM e Regras", type="secondary"):
-                if desc_produto:
-                    with st.spinner("A IA está a analisar as regras aduaneiras..."):
-                        try:
-                            model = genai.GenerativeModel('gemini-1.5-flash')
-                            prompt = f"Aja como um Despachante Aduaneiro Sênior no Brasil. O cliente quer importar o seguinte produto: '{desc_produto}'. Qual é a classificação fiscal (NCM) mais adequada? Responda de forma curta e direta com o NCM de 8 dígitos e uma breve justificativa. Indique também se exige LI."
-                            resposta = model.generate_content(prompt)
-                            st.info(resposta.text)
-                        except Exception as e:
-                            st.error(f"Erro ao conectar com a IA: {e}")
-                else:
-                    st.warning("Escreva o nome do produto primeiro.")
-    else:
-        st.warning("IA não conectada. Verifique os Secrets do Streamlit.")
-
-    with st.form("form_masterdata"):
-        col1, col2 = st.columns(2)
-        sku = col1.text_input("SKU Interno (Opcional)", value=f"PRD-{len(df_masterdata)+1:04d}")
-        nome = col2.text_input("Nome do Produto (Inglês ou Português)")
-        ncm = col1.text_input("NCM Correto e Validado")
-        preco_alvo = col2.number_input("Preço de Compra Alvo (USD)", step=0.10)
-        
-        if st.form_submit_button("Salvar na Base de Dados", type="primary"):
-            novo_dado = pd.DataFrame([[sku, nome, ncm, preco_alvo]], columns=df_masterdata.columns)
-            df_masterdata = pd.concat([df_masterdata, novo_dado], ignore_index=True)
-            salvar_dados(df_masterdata, DB_MASTERDATA)
-            st.success("Produto cadastrado na nuvem com sucesso!")
-            st.rerun()
-
-    st.markdown("---")
-    st.subheader("Produtos Cadastrados")
-    st.dataframe(df_masterdata, use_container_width=True)
-
-# ==========================================
-# MÓDULO 3: PORTAL DE ENTRADA XML
-# ==========================================
-elif menu == "3. 🛠️ Portal de XML (Bling)":
-    st.title("🛠️ Portal de Integração Bling")
-    
-    aba1, aba2 = st.tabs(["1️⃣ Importação Formal (Corretor)", "2️⃣ Importação Simplificada (Gerador via Planilha)"])
-    
-    # -- ABA 1: HIGIENIZADOR DE XML --
-    with aba1:
-        st.markdown("Arraste o XML do Despachante. O sistema arranja os arredondamentos e a ST (Erro 531 e 932).")
-        uploaded_xml = st.file_uploader("Arquivo XML (Despachante)", type=['xml'])
-
-        if uploaded_xml:
-            ET.register_namespace('', 'http://www.portalfiscal.inf.br/nfe')
-            tree = ET.parse(uploaded_xml)
-            root = tree.getroot()
-            ns = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}
-
-            soma_vBC, soma_vICMS = 0.0, 0.0
-            
-            for det in root.findall('.//nfe:det', ns):
-                imposto = det.find('nfe:imposto', ns)
-                if imposto is not None:
-                    icms = imposto.find('.//nfe:ICMS/*', ns)
-                    if icms is not None:
-                        modBCST = icms.find('nfe:modBCST', ns)
-                        if modBCST is not None: modBCST.text = '3'
-                        
-                        vBC = round(float(icms.find('nfe:vBC', ns).text), 2)
-                        vICMS = round(float(icms.find('nfe:vICMS', ns).text), 2)
-                        icms.find('nfe:vBC', ns).text = f"{vBC:.2f}"
-                        icms.find('nfe:vICMS', ns).text = f"{vICMS:.2f}"
-                        soma_vBC += vBC; soma_vICMS += vICMS
-
-            total = root.find('.//nfe:total/nfe:ICMSTot', ns)
-            if total is not None:
-                total.find('nfe:vBC', ns).text = f"{soma_vBC:.2f}"
-                total.find('nfe:vICMS', ns).text = f"{soma_vICMS:.2f}"
-
-            xml_str = ET.tostring(root, encoding='utf-8', xml_declaration=True)
-            st.success("✅ XML corrigido com sucesso!")
-            st.download_button("📥 Baixar XML Higienizado", xml_str, "XML_Pronto_Bling.xml", "text/xml", type="primary")
-
-    # -- ABA 2: GERADOR DE SIMPLIFICADA (DIR/UPS) --
-    with aba2:
-        st.markdown("Arraste a **Commercial Invoice (Excel)** para gerar o XML com 60% de II + ICMS.")
-        uploaded_csv = st.file_uploader("Arquivo Excel (Invoice)", type=['xlsx', 'csv'])
-        
-        c1, c2, c3 = st.columns(3)
-        dir_dolar = c1.number_input("Dólar Base (DIR)", value=5.3338, format="%.4f")
-        dir_frete = c2.number_input("Frete/Seguro Total (BRL)", value=0.0)
-        dir_icms = c3.number_input("Alíquota ICMS Estado (%)", value=17.0) / 100
-        
-        if uploaded_csv and st.button("🚀 Processar e Gerar XML", type="primary"):
-            try:
-                df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
-                
-                start_row = -1
-                for i, row in df_inv.iterrows():
-                    if 'DESCRIPTION OF GOODS' in str(row.values).upper() or 'NAME' in str(row.values).upper():
-                        start_row = i
-                        break
-                
-                if start_row != -1:
-                    df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
-                
-                cols = [str(c).upper().strip() for c in df_inv.columns]
-                df_inv.columns = cols
-                
-                col_nome = [c for c in cols if 'NAME' in c or 'DESCRIPTION' in c][0]
-                col_ncm = [c for c in cols if 'HS CODE' in c or 'NCM' in c][0]
-                col_qty = [c for c in cols if 'QTY' in c or 'QUANTITY' in c][0]
-                col_total = [c for c in cols if 'TOTAL' in c and 'COST' in c or 'AMOUNT' in c][0]
-
-                df_inv = df_inv.dropna(subset=[col_qty, col_total])
-                
-                nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
-                infNFe = ET.SubElement(nfe, "infNFe", Id="NFeGeradaCaasi", versao="4.00")
-                
-                soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = 0
-                
-                for idx, row in df_inv.iterrows():
-                    det = ET.SubElement(infNFe, "det", nItem=str(idx+1))
-                    prod = ET.SubElement(det, "prod")
-                    ET.SubElement(prod, "cProd").text = f"IMP-{idx+1:03d}"
-                    ET.SubElement(prod, "xProd").text = str(row[col_nome])[:120]
-                    ET.SubElement(prod, "NCM").text = str(row[col_ncm]).replace('.', '').strip()[:8]
-                    ET.SubElement(prod, "CFOP").text = "3102"
-                    ET.SubElement(prod, "uCom").text = "UN"
-                    ET.SubElement(prod, "qCom").text = str(row[col_qty])
-                    
-                    vProd_usd = float(row[col_total])
-                    vProd_brl = vProd_usd * dir_dolar
-                    ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
-                    
-                    vII = vProd_brl * 0.60
-                    rateio_frete = dir_frete / len(df_inv) 
-                    base_icms = (vProd_brl + vII + rateio_frete) / (1 - dir_icms)
-                    vICMS = base_icms * dir_icms
-                    
-                    soma_prod_brl += vProd_brl
-                    soma_bc_icms += base_icms
-                    soma_icms += vICMS
-                    soma_ii += vII
-                    
-                    imposto = ET.SubElement(det, "imposto")
-                    icms = ET.SubElement(imposto, "ICMS")
-                    icmssn = ET.SubElement(icms, "ICMSSN900")
-                    ET.SubElement(icmssn, "orig").text = "1"
-                    ET.SubElement(icmssn, "CSOSN").text = "900"
-                    ET.SubElement(icmssn, "modBC").text = "3"
-                    ET.SubElement(icmssn, "vBC").text = f"{base_icms:.2f}"
-                    ET.SubElement(icmssn, "pICMS").text = f"{dir_icms*100:.2f}"
-                    ET.SubElement(icmssn, "vICMS").text = f"{vICMS:.2f}"
-                    
-                    ii_tag = ET.SubElement(imposto, "II")
-                    ET.SubElement(ii_tag, "vBC").text = f"{vProd_brl:.2f}"
-                    ET.SubElement(ii_tag, "vDespAdu").text = "0.00"
-                    ET.SubElement(ii_tag, "vII").text = f"{vII:.2f}"
-                    ET.SubElement(ii_tag, "vIOF").text = "0.00"
-
-                total = ET.SubElement(infNFe, "total")
-                icmstot = ET.SubElement(total, "ICMSTot")
-                ET.SubElement(icmstot, "vBC").text = f"{soma_bc_icms:.2f}"
-                ET.SubElement(icmstot, "vICMS").text = f"{soma_icms:.2f}"
-                ET.SubElement(icmstot, "vProd").text = f"{soma_prod_brl:.2f}"
-                ET.SubElement(icmstot, "vII").text = f"{soma_ii:.2f}"
-                ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms):.2f}"
-
-                xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
-                st.success("✅ Matriz XML Gerada com Sucesso!")
-                st.download_button("📥 Baixar XML Simplificado (DIR)", xml_saida, "XML_Simplificada_UPS.xml", "text/xml", type="primary")
-
-            except Exception as e:
-                st.error(f"Erro ao gerar XML: Verifique se a planilha é o padrão. Detalhe: {e}")
-
-# ==========================================
-# MÓDULO 4: CONTROLE DE ESTOQUE
-# ==========================================
-elif menu == "4. 📦 Controlo de Estoque":
-    st.title("📦 Inventário e Entradas/Saídas")
-    st.markdown("Controle as quantidades disponíveis.")
-
-    # --- IMPORTAÇÃO MARCO ZERO (T0) ---
-    with st.expander("🚀 Importar Estoque Inicial (Marco Zero - T0)", expanded=False):
-        st.markdown("Suba a sua planilha atual de estoque (Excel ou CSV). O sistema assumirá este como o saldo inicial.")
-        arquivo_t0 = st.file_uploader("Planilha de Estoque Inicial", type=['xlsx', 'csv'], key="t0_upload")
-        
-        if arquivo_t0 and st.button("Carregar Saldo Inicial T0", type="primary"):
-            try:
-                df_t0 = pd.read_excel(arquivo_t0) if arquivo_t0.name.endswith('.xlsx') else pd.read_csv(arquivo_t0)
-                col_prod = next((c for c in df_t0.columns if 'PRODUTO' in str(c).upper() or 'DESCRI' in str(c).upper() or 'NOME' in str(c).upper()), None)
-                col_qtd = next((c for c in df_t0.columns if 'QUANT' in str(c).upper() or 'QTD' in str(c).upper()), None)
-                
-                if col_prod and col_qtd:
-                    for _, row in df_t0.iterrows():
-                        novo_mov = pd.DataFrame([[datetime.now().strftime("%d/%m/%Y"), "SKU-T0", row[col_prod], "Entrada (T0 Inicial)", row[col_qtd], "Carga Inicial de Sistema"]], columns=df_estoque.columns)
-                        df_estoque = pd.concat([df_estoque, novo_mov], ignore_index=True)
-                    salvar_dados(df_estoque, DB_ESTOQUE)
-                    st.success("✅ Estoque Marco Zero carregado com sucesso!")
-                    st.rerun()
-                else:
-                    st.error("A planilha precisa ter colunas com nomes parecidos com 'Produto' e 'Quantidade'.")
-            except Exception as e:
-                st.error(f"Erro ao ler a planilha: {e}")
-
-    c_ent, c_sai = st.columns(2)
-    with c_ent:
-        st.subheader("Registrar Movimentação")
-        with st.form("form_movimento"):
-            data_mov = datetime.now().strftime("%d/%m/%Y")
-            prods = df_masterdata['Nome_Produto'].tolist() if not df_masterdata.empty else ["Cadastre produtos no Masterdata"]
-            prod_sel = st.selectbox("Produto", prods)
-            tipo_mov = st.radio("Tipo", ["Entrada (Importação)", "Saída (Venda)"], horizontal=True)
-            qtd_mov = st.number_input("Quantidade", min_value=1, step=1)
-            obs = st.text_input("Observação (Ex: Venda ML, Chegada UPS)")
-            
-            if st.form_submit_button("Lançar no Estoque", type="primary"):
-                mult = 1 if tipo_mov.startswith("Ent") else -1
-                novo_mov = pd.DataFrame([[data_mov, "SKU-REG", prod_sel, tipo_mov, qtd_mov * mult, obs]], columns=df_estoque.columns)
-                df_estoque = pd.concat([df_estoque, novo_mov], ignore_index=True)
-                salvar_dados(df_estoque, DB_ESTOQUE)
-                st.success("Estoque atualizado!")
-                st.rerun()
-
-    with c_sai:
-        st.subheader("Baixa em Lote (Mercado Livre/Bling)")
-        arquivo_vendas = st.file_uploader("Subir Relatório de Vendas (CSV/Excel)", type=['csv', 'xlsx'])
-        if arquivo_vendas:
-            st.info("Funcionalidade pronta para mapeamento: O sistema lerá os SKUs vendidos e fará a baixa automática de todos de uma vez.")
-
-    st.markdown("---")
-    st.subheader("📊 Posição Atual do Estoque")
-    if not df_estoque.empty:
-        saldo_atual = df_estoque.groupby('Produto')['Quantidade'].sum().reset_index()
-        saldo_atual.columns = ['Produto', 'Saldo Disponível']
-        c1, c2 = st.columns([2, 3])
-        with c1:
-            st.dataframe(saldo_atual, use_container_width=True)
-        with c2:
-            st.markdown("**Histórico Recente de Movimentações**")
-            st.dataframe(df_estoque.tail(10).iloc[::-1], use_container_width=True)
-    else:
-        st.info("Nenhuma movimentação registada no momento.")

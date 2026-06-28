@@ -489,16 +489,29 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             for idx, row in df_inv.iterrows():
                                 vProd_usd = float(row[col_total])
+                                qtd_item = float(row[col_qty])
+                                
+                                # Rateio baseado no valor do produto (mais seguro quando não há peso individual na invoice)
                                 proporcao = vProd_usd / total_produtos_usd if total_produtos_usd > 0 else 0
                                 
-                                vProd_brl = vProd_usd * float(dados_dir['taxa_dolar'])
-                                rateio_frete = float(dados_dir['valor_frete_brl']) * proporcao
+                                # Valor base do produto convertido para BRL
+                                vProd_brl_base = vProd_usd * float(dados_dir['taxa_dolar'])
                                 
-                                # A Mágica Tributária da Simplificada
-                                vAduaneiro = vProd_brl + rateio_frete
+                                # Rateio do frete e outras despesas para este item
+                                rateio_frete = float(dados_dir['valor_frete_brl']) * proporcao
+                                rateio_outras_despesas = dir_outras * proporcao
+                                
+                                # NOVO CÁLCULO: Embutindo o frete e despesas no valor do produto (Custo Unitário Final)
+                                # O vProd_brl agora inclui o valor do produto FOB + Rateio do Frete + Outras Despesas
+                                vProd_brl = vProd_brl_base + rateio_frete + rateio_outras_despesas
+                                
+                                # A Mágica Tributária da Simplificada (Base do Imposto de Importação)
+                                # Na simplificada, o II é 60% sobre o valor aduaneiro (FOB + Frete)
+                                vAduaneiro = vProd_brl_base + rateio_frete
                                 vII = vAduaneiro * 0.60
                                 
-                                base_icms = (vAduaneiro + vII) / (1 - dir_icms)
+                                # Cálculo do ICMS "por dentro"
+                                base_icms = (vProd_brl + vII) / (1 - dir_icms)
                                 vICMS = base_icms * dir_icms
                                 
                                 det = ET.SubElement(infNFe, "det", nItem=str(idx+1))
@@ -511,9 +524,18 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 
                                 ET.SubElement(prod, "CFOP").text = "3102"
                                 ET.SubElement(prod, "uCom").text = "UN"
-                                ET.SubElement(prod, "qCom").text = str(row[col_qty])
+                                ET.SubElement(prod, "qCom").text = f"{qtd_item:.4f}"
+                                
+                                # Valor Total do Produto (Já com o frete embutido)
                                 ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
-                                ET.SubElement(prod, "vFrete").text = f"{rateio_frete:.2f}"
+                                
+                                # Valor Unitário (Valor Total / Quantidade)
+                                vUnCom = vProd_brl / qtd_item if qtd_item > 0 else vProd_brl
+                                ET.SubElement(prod, "vUnCom").text = f"{vUnCom:.4f}"
+                                ET.SubElement(prod, "vUnTrib").text = f"{vUnCom:.4f}"
+                                
+                                # O frete destacado agora é ZERO, pois já está embutido no vProd
+                                ET.SubElement(prod, "vFrete").text = "0.00"
                                 
                                 # Tag da DI (Obrigatória no Bling e SEFAZ)
                                 di = ET.SubElement(prod, "DI")
@@ -533,7 +555,10 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(adi, "nSeqAdic").text = "1"
                                 ET.SubElement(adi, "cFabricante").text = "999"
                                 
-                                soma_prod_brl += vProd_brl; soma_bc_icms += base_icms; soma_icms += vICMS; soma_ii += vII; soma_frete += rateio_frete
+                                soma_prod_brl += vProd_brl
+                                soma_bc_icms += base_icms
+                                soma_icms += vICMS
+                                soma_ii += vII
                                 
                                 imposto = ET.SubElement(det, "imposto")
                                 
@@ -578,8 +603,12 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             icmstot = ET.SubElement(total, "ICMSTot")
                             ET.SubElement(icmstot, "vBC").text = f"{soma_bc_icms:.2f}"
                             ET.SubElement(icmstot, "vICMS").text = f"{soma_icms:.2f}"
+                            
+                            # O Total dos Produtos agora é o somatório com o frete embutido
                             ET.SubElement(icmstot, "vProd").text = f"{soma_prod_brl:.2f}"
-                            ET.SubElement(icmstot, "vFrete").text = f"{soma_frete:.2f}"
+                            
+                            # Frete total e outras despesas da nota zerados (já estão no vProd)
+                            ET.SubElement(icmstot, "vFrete").text = "0.00"
                             ET.SubElement(icmstot, "vSeg").text = "0.00"
                             ET.SubElement(icmstot, "vDesc").text = "0.00"
                             ET.SubElement(icmstot, "vII").text = f"{soma_ii:.2f}"
@@ -587,9 +616,14 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(icmstot, "vPIS").text = "0.00"
                             ET.SubElement(icmstot, "vCOFINS").text = "0.00"
                             ET.SubElement(icmstot, "vOutro").text = "0.00"
-                            ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms + soma_frete):.2f}"
+                            
+                            # Valor Total da NF
+                            ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms):.2f}"
 
                             xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
+                            
+                            st.session_state['numero_nfe_atual'] = numero_nfe + 1
+                            
                             st.success(f"✅ Matriz XML Integrada (DIR {dados_dir['numero_dir']}) Gerada com Sucesso!")
                             st.download_button("📥 Baixar XML para Bling", xml_saida, f"XML_CAASI_{dados_dir['numero_dir']}.xml", "text/xml", type="primary")
 

@@ -140,7 +140,7 @@ if menu == "1. 📊 Cotação e Precificação":
                 elif ia_configurada:
                     with st.spinner(f"A IA está pesquisando a base do Mercado Livre para '{nome_produto}'..."):
                         try:
-                            model = genai.GenerativeModel('gemini-1.5-pro')
+                            model = genai.GenerativeModel('gemini-1.5-flash')
                             prompt = f"""
                             Aja como o Diretor de Pricing da CAASI Imports, especialista no Mercado Livre Brasil.
                             Faça uma análise rápida e direta sobre o produto: '{nome_produto}'.
@@ -358,7 +358,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             for page in leitor_recibo.pages: texto_recibo += page.extract_text() + "\n"
                             
                             # 2. IA Audita os Documentos
-                            model = genai.GenerativeModel('gemini-1.5-pro')
+                            model = genai.GenerativeModel('gemini-1.5-flash')
                             prompt = f"""
                             Aja como um auditor fiscal especialista em comércio exterior. Extraia os dados numéricos cruciais dos seguintes textos extraídos da DIR e Recibo de Importação (FedEx/UPS/DHL).
                             TEXTO DA DIR E RECIBO:
@@ -581,7 +581,7 @@ ML_SECRET_KEY = "sua_secret_key_aqui"
         if ia_configurada:
             with st.spinner("A IA está cruzando dados de anúncios, custos de Ads e tempo de estoque no FULL..."):
                 try:
-                    model = genai.GenerativeModel('gemini-1.5-pro')
+                    model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     # Prompt simulando o envio dos dados extraídos da API do ML
                     prompt = """

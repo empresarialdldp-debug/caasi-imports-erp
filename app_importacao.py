@@ -473,13 +473,12 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 
                                 vProd_brl = vProd_usd * float(dados_dir['taxa_dolar'])
                                 rateio_frete = float(dados_dir['valor_frete_brl']) * proporcao
-                                rateio_outras = dir_outras * proporcao
                                 
                                 # A Mágica Tributária da Simplificada
                                 vAduaneiro = vProd_brl + rateio_frete
                                 vII = vAduaneiro * 0.60
                                 
-                                base_icms = (vAduaneiro + vII + rateio_outras) / (1 - dir_icms)
+                                base_icms = (vAduaneiro + vII) / (1 - dir_icms)
                                 vICMS = base_icms * dir_icms
                                 
                                 det = ET.SubElement(infNFe, "det", nItem=str(idx+1))
@@ -495,7 +494,6 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(prod, "qCom").text = str(row[col_qty])
                                 ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
                                 ET.SubElement(prod, "vFrete").text = f"{rateio_frete:.2f}"
-                                ET.SubElement(prod, "vOutro").text = f"{rateio_outras:.2f}"
                                 
                                 # Tag da DI (Obrigatória no Bling e SEFAZ)
                                 di = ET.SubElement(prod, "DI")
@@ -513,9 +511,9 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 adi = ET.SubElement(di, "adi")
                                 ET.SubElement(adi, "nAdicao").text = str(idx+1)
                                 ET.SubElement(adi, "nSeqAdic").text = "1"
-                                ET.SubElement(adi, "cFabricante").text = "N/A"
+                                ET.SubElement(adi, "cFabricante").text = "999"
                                 
-                                soma_prod_brl += vProd_brl; soma_bc_icms += base_icms; soma_icms += vICMS; soma_ii += vII; soma_frete += rateio_frete; soma_outras += rateio_outras
+                                soma_prod_brl += vProd_brl; soma_bc_icms += base_icms; soma_icms += vICMS; soma_ii += vII; soma_frete += rateio_frete
                                 
                                 imposto = ET.SubElement(det, "imposto")
                                 
@@ -568,8 +566,8 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(icmstot, "vIPI").text = "0.00"
                             ET.SubElement(icmstot, "vPIS").text = "0.00"
                             ET.SubElement(icmstot, "vCOFINS").text = "0.00"
-                            ET.SubElement(icmstot, "vOutro").text = f"{soma_outras:.2f}"
-                            ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms + soma_frete + soma_outras):.2f}"
+                            ET.SubElement(icmstot, "vOutro").text = "0.00"
+                            ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms + soma_frete):.2f}"
 
                             xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
                             st.success(f"✅ Matriz XML Integrada (DIR {dados_dir['numero_dir']}) Gerada com Sucesso!")

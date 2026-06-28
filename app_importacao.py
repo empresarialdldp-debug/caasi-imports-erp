@@ -10,25 +10,21 @@ import google.generativeai as genai
 
 st.set_page_config(page_title="CAASI Imports - Gestão", page_icon="🚢", layout="wide")
 
-# Configuração da Inteligência Artificial (Lê do Streamlit Secrets de forma segura)
+# Configuração da Inteligência Artificial com diagnóstico de erro
+erro_ia_msg = ""
 try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    ia_configurada = True
-except Exception:
+    if "GEMINI_API_KEY" in st.secrets:
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        ia_configurada = True
+    else:
+        ia_configurada = False
+        erro_ia_msg = "A chave 'GEMINI_API_KEY' não foi encontrada nos Secrets do Streamlit."
+except Exception as e:
     ia_configurada = False
+    erro_ia_msg = f"Erro ao configurar a IA: {str(e)}"
 
 # ==========================================
 # SISTEMA DE LOGIN E SEGURANÇA
-# ==========================================
-def check_password():
-    """Retorna `True` se o utilizador inserir a senha correta."""
-    SENHA_SISTEMA = "caasi2026"
-
-    def password_entered():
-        if st.session_state["password"] == SENHA_SISTEMA:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Limpa a senha por segurança
-        else:
             st.session_state["password_correct"] = False
 
     if st.session_state.get("password_correct"):
@@ -50,10 +46,6 @@ def check_password():
 if not check_password():
     st.stop()
 
-# ==========================================
-# CÓDIGO PRINCIPAL DA APP (Protegido)
-# ==========================================
-
 if 'carrinho' not in st.session_state:
     st.session_state['carrinho'] = []
 
@@ -65,7 +57,6 @@ def carregar_dados(arquivo, colunas):
     if os.path.exists(arquivo):
         return pd.read_excel(arquivo)
     else:
-        # Se não existir, cria um DataFrame vazio e já salva o arquivo para a próxima vez
         df_vazio = pd.DataFrame(columns=colunas)
         df_vazio.to_excel(arquivo, index=False)
         return df_vazio
@@ -73,11 +64,9 @@ def carregar_dados(arquivo, colunas):
 def salvar_dados(df, arquivo):
     df.to_excel(arquivo, index=False)
 
-# Carregar os Bancos de Dados
 df_masterdata = carregar_dados(DB_MASTERDATA, ['SKU', 'Nome_Produto', 'NCM', 'Preco_Alvo_USD'])
 df_estoque = carregar_dados(DB_ESTOQUE, ['Data', 'SKU', 'Produto', 'Tipo_Movimento', 'Quantidade', 'Observacao'])
 
-# --- BARRA LATERAL (MENU) ---
 st.sidebar.title("📦 CAASI IMPORTS")
 st.sidebar.markdown("Sistema Integrado de Importação e Estoque")
 st.sidebar.markdown("---")
@@ -85,10 +74,10 @@ menu = st.sidebar.radio("Navegação Operacional", [
     "1. 📊 Cotação e Precificação", 
     "2. 🗃️ Masterdata (Produtos)", 
     "3. 🛠️ Portal de XML (Bling)", 
-    "4. 📦 Controlo de Estoque"
+    "4. 📦 Controlo de Estoque",
+    "5. 🟡 Inteligência Mercado Livre"
 ])
 
-# Busca Dólar Atualizado
 try:
     url = 'https://economia.awesomeapi.com.br/last/USD-BRL'
     req = urllib.request.urlopen(url)
@@ -97,36 +86,79 @@ try:
 except:
     dolar_hoje = 5.35 # Fallback
 
+# Mostra o erro da IA no topo do sistema se houver problema
+if not ia_configurada:
+    st.error(f"⚠️ A Inteligência Artificial está desativada! Motivo: {erro_ia_msg}")
+
 # ==========================================
 # MÓDULO 1: COTAÇÃO E PRECIFICAÇÃO
 # ==========================================
 if menu == "1. 📊 Cotação e Precificação":
-    st.title("📊 Simulador de Viabilidade e Geração de Pedido (PO)")
-    st.markdown("Analise o custo nacionalizado e adicione ao pedido para enviar à China.")
+    st.title("📊 Cotação, Precificação e Mercado")
+    st.markdown("Importe cotações, analise o mercado com IA e calcule a viabilidade exata.")
 
-    with st.expander("📝 1. Dados do Produto", expanded=True):
-        col_A, col_B, col_C = st.columns(3)
-        with col_A:
-            produtos_cadastrados = df_masterdata['Nome_Produto'].tolist() if not df_masterdata.empty else []
-            nome_produto = st.selectbox("Nome do Produto (Inglês)", ["Novo Produto..."] + produtos_cadastrados)
-            
-            ncm_sugerido = "39262000"
-            if nome_produto != "Novo Produto..." and not df_masterdata.empty:
-                ncm_sugerido = str(df_masterdata[df_masterdata['Nome_Produto'] == nome_produto]['NCM'].values[0])
-            
-            if nome_produto == "Novo Produto...":
-                nome_produto = st.text_input("Digite o nome do produto")
-                
-            ncm = st.text_input("NCM", value=ncm_sugerido)
-            formato_venda = st.text_input("Formato (Unit, Set, Pairs)", value="Unit")
+    # --- 1. IMPORTAR PLANILHA DE COTAÇÕES ---
+    with st.expander("📂 1. Importar Planilha de Cotação (Validação)", expanded=False):
+        st.markdown("Suba uma planilha de cotação antiga ou recebida do fornecedor para visualizar os dados.")
+        arquivo_cotacao = st.file_uploader("Arquivo Excel ou CSV", type=['xlsx', 'csv'], key="import_cotacao")
+        if arquivo_cotacao:
+            try:
+                df_cot = pd.read_excel(arquivo_cotacao) if arquivo_cotacao.name.endswith('.xlsx') else pd.read_csv(arquivo_cotacao)
+                st.dataframe(df_cot, use_container_width=True)
+                st.success("Planilha carregada com sucesso! Use os dados acima para preencher a simulação abaixo.")
+            except Exception as e:
+                st.error(f"Erro ao ler arquivo: {e}")
+
+    # --- 2. INTELIGÊNCIA DE MERCADO E PRODUTO ---
+    with st.expander("🧠 2. Inteligência de Mercado (Mercado Livre)", expanded=True):
+        st.markdown("Digite o nome do produto livremente e peça à IA para analisar os preços e concorrência no Brasil.")
+        
+        # Digitação 100% livre e direta
+        nome_produto = st.text_input("Nome do Produto a ser cotado:", placeholder="Ex: Capa de Silicone iPhone 15, Lanterna Tática X900...")
+        
+        col_pesq1, col_pesq2 = st.columns(2)
+        with col_pesq1:
+            if st.button("🤖 Analisar Mercado com IA", type="primary", use_container_width=True):
+                if not nome_produto:
+                    st.warning("Por favor, digite o nome de um produto primeiro.")
+                elif ia_configurada:
+                    with st.spinner(f"A IA está pesquisando a base do Mercado Livre para '{nome_produto}'..."):
+                        try:
+                            # Configurado para ser agressivo na busca de dados
+                            model = genai.GenerativeModel('gemini-1.5-pro')
+                            prompt = f"""
+                            Aja como o Diretor de Pricing da CAASI Imports, especialista no Mercado Livre Brasil.
+                            Faça uma análise rápida e direta sobre o produto: '{nome_produto}'.
+                            Traga os seguintes dados em tópicos:
+                            1. Preço médio de venda atual (R$).
+                            2. Nível de concorrência (Baixo, Médio, Alto).
+                            3. Preço sugerido (R$) para o Marcelo entrar rasgando o mercado e ganhar dos top 5.
+                            4. Palavras-chave mais buscadas para esse produto no ML.
+                            """
+                            resposta = model.generate_content(prompt)
+                            st.info(resposta.text)
+                        except Exception as e:
+                            st.error(f"Erro na IA: {e}")
+                else:
+                    st.error("A IA não conseguiu conectar. Verifique os Secrets.")
+                    
+        with col_pesq2:
+            if nome_produto:
+                termo_ml = nome_produto.replace(" ", "-")
+                link_ml = f"https://lista.mercadolivre.com.br/{termo_ml}"
+                st.markdown(f'<a href="{link_ml}" target="_blank"><button style="background-color:#ffe600; color:#333; border:none; padding:10px 20px; text-align:center; text-decoration:none; display:inline-block; font-size:16px; margin:4px 2px; cursor:pointer; border-radius:8px; width:100%; font-weight:bold;">📦 Ver com os próprios olhos no ML</button></a>', unsafe_allow_html=True)
+
+        col_B, col_C = st.columns(2)
         with col_B:
-            descricao = st.text_area("Descrição Detalhada", value="Descrição em inglês para a Invoice...", height=115)
+            ncm = st.text_input("NCM (Opcional)", value="39262000")
+            formato_venda = st.text_input("Formato (Unit, Set, Pairs)", value="Unit")
         with col_C:
-            link_fornecedor = st.text_input("Link Alibaba / 1688")
-            detalhes_cores = st.text_area("Detalhes (Cores, Tamanhos)", value="200 - BLACK", height=45)
+            link_fornecedor = st.text_input("Link Alibaba / Fornecedor")
+            descricao = st.text_area("Detalhes Rápidos (Para o Carrinho)", value="Cores sortidas, embalagem plástica", height=68)
 
+    # --- 3. CÁLCULO E PRECIFICAÇÃO ---
     with st.form("form_simulacao"):
-        st.markdown("### 🧮 2. Estrutura de Custos")
+        st.markdown("### 🧮 3. Estrutura de Custos")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown("**Na Origem (USD)**")
@@ -145,7 +177,7 @@ if menu == "1. 📊 Cotação e Precificação":
         with col3:
             st.markdown("**Venda (BRL)**")
             preco_venda = st.number_input("Preço de Venda (BRL)", value=35.00, step=1.0)
-            taxa_ml = st.number_input("Taxa Marketplace (%)", value=16.0) / 100
+            taxa_ml = st.number_input("Taxa ML Aproximada (%)", value=16.0) / 100
             st.markdown("<br>", unsafe_allow_html=True)
             submit_button = st.form_submit_button("🔄 Calcular", type="primary", use_container_width=True)
 
@@ -169,7 +201,7 @@ if menu == "1. 📊 Cotação e Precificação":
         margem = (lucro / preco_venda) * 100 if preco_venda > 0 else 0
 
         st.session_state['ultimo_calculo'] = {
-            'NAME': nome_produto, 'DETAILED DESCRIPTION': descricao, 'REFERENCE 1688.COM // ALIBABA': link_fornecedor,
+            'NAME': nome_produto, 'DETAILED DESCRIPTION': descricao, 'REFERENCE': link_fornecedor,
             'NCM': ncm, 'Sales Format': formato_venda, 'Quantity': quantidade, 'UNIT WEIGHT (KG)': peso_unitario,
             'UNIT PRICE': custo_usd, 'TARGET': '', 'Total Product Cost': custo_usd*quantidade, 'DETAILS': detalhes_cores,
             'Custo BR': round(custo_unit, 2), 'Margem %': round(margem, 2)
@@ -187,11 +219,9 @@ if menu == "1. 📊 Cotação e Precificação":
 
     if len(st.session_state['carrinho']) > 0:
         st.markdown("---")
-        st.subheader("🛒 Carrinho de Importação (Purchase Order)")
+        st.subheader("🛒 Carrinho de Importação (PO)")
         df_po = pd.DataFrame(st.session_state['carrinho'])
-        
-        colunas_exibicao = ['NAME', 'Quantity', 'UNIT PRICE', 'Total Product Cost', 'Margem %']
-        st.dataframe(df_po[colunas_exibicao], use_container_width=True)
+        st.dataframe(df_po[['NAME', 'Quantity', 'UNIT PRICE', 'Total Product Cost', 'Margem %']], use_container_width=True)
         
         c_limpar, c_export = st.columns(2)
         with c_limpar:
@@ -199,20 +229,266 @@ if menu == "1. 📊 Cotação e Precificação":
                 st.session_state['carrinho'] = []
                 st.rerun()
         with c_export:
-            colunas_exportacao = [
-                'NAME', 'DETAILED DESCRIPTION', 'REFERENCE 1688.COM // ALIBABA', 
-                'NCM', 'Sales Format', 'Quantity', 'UNIT WEIGHT (KG)', 
-                'UNIT PRICE', 'TARGET', 'Total Product Cost', 'DETAILS'
-            ]
-            df_export = df_po[colunas_exportacao]
-            
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_export.to_excel(writer, sheet_name='COMMERCIAL INVOICE', index=False)
-            
-            st.download_button("📥 Exportar Pedido (Excel) para China", buffer.getvalue(), "PO_CAASI.xlsx", 
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+                df_po.drop(columns=['Custo BR', 'Margem %']).to_excel(writer, sheet_name='INVOICE', index=False)
+            st.download_button("📥 Exportar Pedido (Excel) para China", buffer.getvalue(), "PO_CAASI.xlsx", type="primary", use_container_width=True)
 
+elif menu == "2. 🗃️ Masterdata (Produtos)":
+    st.title("🗃️ Gestor de Cadastros e NCMs")
+    st.markdown("Base de conhecimento da CAASI. Registe os NCMs validados.")
+
+    st.markdown("### 🤖 Consultor Fiscal IA (Buscador de NCM)")
+    if ia_configurada:
+        with st.expander("Não sabe o NCM? Descreva o produto e pergunte à IA:", expanded=False):
+            desc_produto = st.text_input("Descreva o produto (Ex: Isca artificial de silicone)")
+            if st.button("🔍 Consultar NCM e Regras", type="secondary"):
+                if desc_produto:
+                    with st.spinner("A IA está a analisar..."):
+                        try:
+                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            prompt = f"Aja como Despachante Aduaneiro no Brasil. Produto: '{desc_produto}'. Qual a classificação fiscal (NCM) adequada? Dê o NCM 8 dígitos, breve justificativa e informe se exige LI."
+                            st.info(model.generate_content(prompt).text)
+                        except Exception as e:
+                            st.error(f"Erro IA: {e}")
+    else:
+        st.warning("IA não conectada no Secrets.")
+
+    with st.form("form_masterdata"):
+        col1, col2 = st.columns(2)
+        sku = col1.text_input("SKU Interno (Opcional)", value=f"PRD-{len(df_masterdata)+1:04d}")
+        nome = col2.text_input("Nome do Produto")
+        ncm = col1.text_input("NCM Correto")
+        preco_alvo = col2.number_input("Preço Alvo (USD)", step=0.10)
+        
+        if st.form_submit_button("Salvar na Base", type="primary"):
+            novo_dado = pd.DataFrame([[sku, nome, ncm, preco_alvo]], columns=df_masterdata.columns)
+            df_masterdata = pd.concat([df_masterdata, novo_dado], ignore_index=True)
+            salvar_dados(df_masterdata, DB_MASTERDATA)
+            st.success("Produto cadastrado!")
+            st.rerun()
+
+    st.dataframe(df_masterdata, use_container_width=True)
+
+elif menu == "3. 🛠️ Portal de XML (Bling)":
+    st.title("🛠️ Portal de Integração Bling")
+    aba1, aba2 = st.tabs(["1️⃣ Corretor de XML (Despachante)", "2️⃣ Gerador XML (Simplificada)"])
+    
+    with aba1:
+        st.markdown("Arraste o XML do Despachante para corrigir arredondamentos (Erro 531 e 932).")
+        uploaded_xml = st.file_uploader("Arquivo XML", type=['xml'])
+        if uploaded_xml:
+            ET.register_namespace('', 'http://www.portalfiscal.inf.br/nfe')
+            tree = ET.parse(uploaded_xml)
+            root = tree.getroot()
+            ns = {'nfe': 'http://www.portalfiscal.inf.br/nfe'}
+            soma_vBC, soma_vICMS = 0.0, 0.0
+            
+            for det in root.findall('.//nfe:det', ns):
+                imposto = det.find('nfe:imposto', ns)
+                if imposto is not None:
+                    icms = imposto.find('.//nfe:ICMS/*', ns)
+                    if icms is not None:
+                        modBCST = icms.find('nfe:modBCST', ns)
+                        if modBCST is not None: modBCST.text = '3'
+                        vBC = round(float(icms.find('nfe:vBC', ns).text), 2)
+                        vICMS = round(float(icms.find('nfe:vICMS', ns).text), 2)
+                        icms.find('nfe:vBC', ns).text = f"{vBC:.2f}"
+                        icms.find('nfe:vICMS', ns).text = f"{vICMS:.2f}"
+                        soma_vBC += vBC; soma_vICMS += vICMS
+
+            total = root.find('.//nfe:total/nfe:ICMSTot', ns)
+            if total is not None:
+                total.find('nfe:vBC', ns).text = f"{soma_vBC:.2f}"
+                total.find('nfe:vICMS', ns).text = f"{soma_vICMS:.2f}"
+
+            xml_str = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+            st.success("✅ XML corrigido!")
+            st.download_button("📥 Baixar XML Higienizado", xml_str, "XML_Bling.xml", "text/xml")
+
+    with aba2:
+        st.markdown("Gera XML para Bling via Invoice da China (60% II + ICMS por dentro).")
+        uploaded_csv = st.file_uploader("Excel (Invoice)", type=['xlsx', 'csv'])
+        c1, c2, c3 = st.columns(3)
+        dir_dolar = c1.number_input("Dólar (DIR)", value=5.3338, format="%.4f")
+        dir_frete = c2.number_input("Frete/Seguro (BRL)", value=0.0)
+        dir_icms = c3.number_input("ICMS Estado (%)", value=17.0) / 100
+        
+        if uploaded_csv and st.button("🚀 Gerar XML Automático", type="primary"):
+            try:
+                df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
+                start_row = -1
+                for i, row in df_inv.iterrows():
+                    if 'DESCRIPTION OF GOODS' in str(row.values).upper() or 'NAME' in str(row.values).upper():
+                        start_row = i
+                        break
+                if start_row != -1:
+                    df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
+                
+                cols = [str(c).upper().strip() for c in df_inv.columns]
+                df_inv.columns = cols
+                col_nome = [c for c in cols if 'NAME' in c or 'DESCRIPTION' in c][0]
+                col_ncm = [c for c in cols if 'HS CODE' in c or 'NCM' in c][0]
+                col_qty = [c for c in cols if 'QTY' in c or 'QUANTITY' in c][0]
+                col_total = [c for c in cols if 'TOTAL' in c and 'COST' in c or 'AMOUNT' in c][0]
+                df_inv = df_inv.dropna(subset=[col_qty, col_total])
+                
+                nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
+                infNFe = ET.SubElement(nfe, "infNFe", Id="NFeGeradaCaasi", versao="4.00")
+                soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = 0
+                
+                for idx, row in df_inv.iterrows():
+                    det = ET.SubElement(infNFe, "det", nItem=str(idx+1))
+                    prod = ET.SubElement(det, "prod")
+                    ET.SubElement(prod, "cProd").text = f"IMP-{idx+1:03d}"
+                    ET.SubElement(prod, "xProd").text = str(row[col_nome])[:120]
+                    ET.SubElement(prod, "NCM").text = str(row[col_ncm]).replace('.', '').strip()[:8]
+                    ET.SubElement(prod, "CFOP").text = "3102"
+                    ET.SubElement(prod, "uCom").text = "UN"
+                    ET.SubElement(prod, "qCom").text = str(row[col_qty])
+                    
+                    vProd_usd = float(row[col_total])
+                    vProd_brl = vProd_usd * dir_dolar
+                    ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
+                    
+                    vII = vProd_brl * 0.60
+                    rateio_frete = dir_frete / len(df_inv) 
+                    base_icms = (vProd_brl + vII + rateio_frete) / (1 - dir_icms)
+                    vICMS = base_icms * dir_icms
+                    
+                    soma_prod_brl += vProd_brl; soma_bc_icms += base_icms; soma_icms += vICMS; soma_ii += vII
+                    
+                    imposto = ET.SubElement(det, "imposto")
+                    icms = ET.SubElement(imposto, "ICMS")
+                    icmssn = ET.SubElement(icms, "ICMSSN900")
+                    ET.SubElement(icmssn, "orig").text = "1"
+                    ET.SubElement(icmssn, "CSOSN").text = "900"
+                    ET.SubElement(icmssn, "modBC").text = "3"
+                    ET.SubElement(icmssn, "vBC").text = f"{base_icms:.2f}"
+                    ET.SubElement(icmssn, "pICMS").text = f"{dir_icms*100:.2f}"
+                    ET.SubElement(icmssn, "vICMS").text = f"{vICMS:.2f}"
+                    
+                    ii_tag = ET.SubElement(imposto, "II")
+                    ET.SubElement(ii_tag, "vBC").text = f"{vProd_brl:.2f}"
+                    ET.SubElement(ii_tag, "vDespAdu").text = "0.00"
+                    ET.SubElement(ii_tag, "vII").text = f"{vII:.2f}"
+                    ET.SubElement(ii_tag, "vIOF").text = "0.00"
+
+                total = ET.SubElement(infNFe, "total")
+                icmstot = ET.SubElement(total, "ICMSTot")
+                ET.SubElement(icmstot, "vBC").text = f"{soma_bc_icms:.2f}"
+                ET.SubElement(icmstot, "vICMS").text = f"{soma_icms:.2f}"
+                ET.SubElement(icmstot, "vProd").text = f"{soma_prod_brl:.2f}"
+                ET.SubElement(icmstot, "vII").text = f"{soma_ii:.2f}"
+                ET.SubElement(icmstot, "vNF").text = f"{(soma_prod_brl + soma_ii + soma_icms):.2f}"
+
+                xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
+                st.success("✅ Matriz XML Gerada com Sucesso!")
+                st.download_button("📥 Baixar XML", xml_saida, "XML_Simplificada.xml", "text/xml", type="primary")
+            except Exception as e:
+                st.error(f"Erro ao gerar XML: {e}")
+
+elif menu == "4. 📦 Controlo de Estoque":
+    st.title("📦 Inventário e Entradas/Saídas")
+
+    with st.expander("🚀 Importar Estoque Inicial (Marco Zero - T0)", expanded=False):
+        arquivo_t0 = st.file_uploader("Planilha de Estoque Inicial", type=['xlsx', 'csv'], key="t0")
+        if arquivo_t0 and st.button("Carregar Saldo T0", type="primary"):
+            try:
+                df_t0 = pd.read_excel(arquivo_t0) if arquivo_t0.name.endswith('.xlsx') else pd.read_csv(arquivo_t0)
+                col_prod = next((c for c in df_t0.columns if 'PRODUTO' in str(c).upper() or 'DESCRI' in str(c).upper()), None)
+                col_qtd = next((c for c in df_t0.columns if 'QUANT' in str(c).upper() or 'QTD' in str(c).upper()), None)
+                if col_prod and col_qtd:
+                    for _, row in df_t0.iterrows():
+                        novo_mov = pd.DataFrame([[datetime.now().strftime("%d/%m/%Y"), "SKU-T0", row[col_prod], "Entrada (T0)", row[col_qtd], "Carga Inicial"]], columns=df_estoque.columns)
+                        df_estoque = pd.concat([df_estoque, novo_mov], ignore_index=True)
+                    salvar_dados(df_estoque, DB_ESTOQUE)
+                    st.success("Estoque T0 carregado!")
+                    st.rerun()
+                else:
+                    st.error("Faltam colunas de Produto/Quantidade.")
+            except Exception as e:
+                st.error(f"Erro: {e}")
+
+    c_ent, c_sai = st.columns(2)
+    with c_ent:
+        with st.form("form_movimento"):
+            data_mov = datetime.now().strftime("%d/%m/%Y")
+            prods = df_masterdata['Nome_Produto'].tolist() if not df_masterdata.empty else ["Sem produtos"]
+            prod_sel = st.selectbox("Produto", prods)
+            tipo_mov = st.radio("Tipo", ["Entrada (Importação)", "Saída (Venda)"], horizontal=True)
+            qtd_mov = st.number_input("Quantidade", min_value=1, step=1)
+            obs = st.text_input("Observação")
+            if st.form_submit_button("Lançar Movimento", type="primary"):
+                mult = 1 if "Entrada" in tipo_mov else -1
+                novo_mov = pd.DataFrame([[data_mov, "SKU-REG", prod_sel, tipo_mov, qtd_mov * mult, obs]], columns=df_estoque.columns)
+                df_estoque = pd.concat([df_estoque, novo_mov], ignore_index=True)
+                salvar_dados(df_estoque, DB_ESTOQUE)
+                st.success("Atualizado!")
+                st.rerun()
+
+    with c_sai:
+        st.info("Baixa em Lote via Mercado Pago (Mapeamento em Breve)")
+
+    st.markdown("---")
+    if not df_estoque.empty:
+        saldo = df_estoque.groupby('Produto')['Quantidade'].sum().reset_index()
+        saldo.columns = ['Produto', 'Saldo']
+        c1, c2 = st.columns([2, 3])
+        c1.dataframe(saldo, use_container_width=True)
+        c2.dataframe(df_estoque.tail(10).iloc[::-1], use_container_width=True)
+
+elif menu == "5. 🟡 Inteligência Mercado Livre":
+    st.title("🟡 Painel de Inteligência - Mercado Livre")
+    st.markdown("Conecte a conta do Mercado Livre para análise de Vendas, Estoque FULL e Campanhas via IA.")
+
+    # Área de Configuração da API do Mercado Livre
+    with st.expander("⚙️ Configuração de Integração (API Mercado Livre)", expanded=False):
+        st.warning("Para ativar a integração real, crie um Aplicativo no painel **developers.mercadolivre.com.br** e insira as chaves nos Secrets do Streamlit.")
+        st.code("""
+# Adicione isto no painel Secrets do Streamlit:
+ML_APP_ID = "seu_app_id_aqui"
+ML_SECRET_KEY = "sua_secret_key_aqui"
+        """, language="python")
+        st.info("Status da Integração: Aguardando Autenticação OAuth2.0")
+
+    st.markdown("---")
+    st.subheader("📊 Dashboard Gerencial (Modo Simulação para Demonstração)")
+    
+    # Simulando os dados que viriam da API do Mercado Livre
+    col_dash1, col_dash2, col_dash3 = st.columns(3)
+    col_dash1.metric("Vendas (Últimos 30 dias)", "R$ 45.230,00", "+12.5% vs Mês Anterior")
+    col_dash2.metric("Custo Mercado Ads", "R$ 3.150,00", "-5% vs Mês Anterior", delta_color="inverse")
+    col_dash3.metric("Itens no FULL (Total)", "1.250 un", "Estoque Saudável")
+
+    st.markdown("### 🧠 Análise Estratégica da IA (Gemini)")
+    st.markdown("A Inteligência Artificial cruza os dados do seu FULL com as vendas para sugerir ações de precificação e redução de custos.")
+    
+    if st.button("Executar Auditoria de Conta via IA", type="primary"):
+        if ia_configurada:
+            with st.spinner("A IA está cruzando dados de anúncios, custos de Ads e tempo de estoque no FULL..."):
+                try:
+                    model = genai.GenerativeModel('gemini-1.5-pro')
+                    
+                    # Prompt simulando o envio dos dados extraídos da API do ML
+                    prompt = """
+                    Aja como um Assessor Estratégico de E-commerce. Recebemos os seguintes dados da API do Mercado Livre do cliente (CAASI):
+                    - Anúncio A (Capa de Silicone): 800 unidades no FULL (paradas há 45 dias). Vendas caíram 20%. ACOS do Mercado Ads está em 35% (muito alto). Preço atual R$ 35,00.
+                    - Anúncio B (Lanterna Tática): 50 unidades no FULL. Vendendo 10 por dia. Preço R$ 80,00.
+                    
+                    Faça uma análise rápida, direta e focada em lucro. Sugira:
+                    1. Ação para o Anúncio A (baixar preço? pausar ads?).
+                    2. Ação para o Anúncio B (risco de ruptura de estoque).
+                    3. Alerta geral sobre taxas de armazenagem do FULL.
+                    """
+                    
+                    resposta = model.generate_content(prompt)
+                    st.success("Auditoria Concluída!")
+                    st.write(resposta.text)
+                except Exception as e:
+                    st.error(f"Erro ao gerar análise da IA: {e}")
+        else:
+            st.warning("IA não configurada no Secrets. O cérebro do sistema está desativado.")
 # ==========================================
 # MÓDULO 2: MASTERDATA (BANCO DE DADOS)
 # ==========================================

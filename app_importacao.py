@@ -436,34 +436,54 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             total_produtos_usd = df_inv[col_total].astype(float).sum()
                             
-                            # --- CRIAÇÃO DO XML PADRÃO BLING NFE 4.0 ---
                             nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
                             infNFe = ET.SubElement(nfe, "infNFe", Id="NFeGeradaCaasi", versao="4.00")
                             
                             # IDE - Identificação da Nota
                             ide = ET.SubElement(infNFe, "ide")
-                            ET.SubElement(ide, "natOp").text = "Compra de mercadorias"
+                            ET.SubElement(ide, "cUF").text = "31" # MG
+                            ET.SubElement(ide, "natOp").text = "Compra de mercadorias (Importacao)"
                             ET.SubElement(ide, "mod").text = "55"
                             ET.SubElement(ide, "serie").text = "1"
                             ET.SubElement(ide, "nNF").text = "0"
-                            ET.SubElement(ide, "tpNF").text = "0" # 0 = Entrada
+                            ET.SubElement(ide, "tpNF").text = "0" # 0 = Entrada (Importação)
                             ET.SubElement(ide, "idDest").text = "3" # 3 = Operação com exterior
+                            ET.SubElement(ide, "tpImp").text = "1"
+                            ET.SubElement(ide, "tpEmis").text = "1"
+                            ET.SubElement(ide, "tpAmb").text = "1"
                             ET.SubElement(ide, "finNFe").text = "1"
+                            ET.SubElement(ide, "indFinal").text = "0"
                             ET.SubElement(ide, "indPres").text = "9" # 9 = Não presencial
                             
-                            # EMIT - Fornecedor (Obrigatório Estrangeiro no Bling)
+                            # EMIT - CAASI (A sua empresa é a emitente da Nota de Entrada)
                             emit = ET.SubElement(infNFe, "emit")
-                            ET.SubElement(emit, "CNPJ").text = "" # CNPJ vazio para emitente estrangeiro
-                            ET.SubElement(emit, "xNome").text = "FORNECEDOR ESTRANGEIRO (IMPORTACAO)"
+                            ET.SubElement(emit, "CNPJ").text = "44102562000111"
+                            ET.SubElement(emit, "xNome").text = "CAASI IMPORTACAO E COMERCIO LTDA"
                             enderEmit = ET.SubElement(emit, "enderEmit")
-                            ET.SubElement(enderEmit, "xLgr").text = "EXTERIOR"
-                            ET.SubElement(enderEmit, "nro").text = "SN"
-                            ET.SubElement(enderEmit, "xBairro").text = "EXTERIOR"
-                            ET.SubElement(enderEmit, "cMun").text = "9999999"
-                            ET.SubElement(enderEmit, "xMun").text = "EXTERIOR"
-                            ET.SubElement(enderEmit, "UF").text = "EX"
-                            ET.SubElement(enderEmit, "cPais").text = "156"
-                            ET.SubElement(enderEmit, "xPais").text = "CHINA"
+                            ET.SubElement(enderEmit, "xLgr").text = "RUA JOSE FERREIRA LOPES"
+                            ET.SubElement(enderEmit, "nro").text = "197"
+                            ET.SubElement(enderEmit, "xBairro").text = "JD FLORENCA"
+                            ET.SubElement(enderEmit, "cMun").text = "3106200"
+                            ET.SubElement(enderEmit, "xMun").text = "BELO HORIZONTE"
+                            ET.SubElement(enderEmit, "UF").text = "MG"
+                            ET.SubElement(enderEmit, "CEP").text = "31520260"
+                            ET.SubElement(enderEmit, "cPais").text = "1058"
+                            ET.SubElement(enderEmit, "xPais").text = "BRASIL"
+                            
+                            # DEST - FORNECEDOR ESTRANGEIRO (O chinês é o destinatário na NFe de Entrada)
+                            dest = ET.SubElement(infNFe, "dest")
+                            ET.SubElement(dest, "idEstrangeiro").text = "EXTERIOR" # Substitui o CNPJ para evitar o erro do Bling
+                            ET.SubElement(dest, "xNome").text = "FORNECEDOR ESTRANGEIRO"
+                            enderDest = ET.SubElement(dest, "enderDest")
+                            ET.SubElement(enderDest, "xLgr").text = "EXTERIOR"
+                            ET.SubElement(enderDest, "nro").text = "SN"
+                            ET.SubElement(enderDest, "xBairro").text = "EXTERIOR"
+                            ET.SubElement(enderDest, "cMun").text = "9999999"
+                            ET.SubElement(enderDest, "xMun").text = "EXTERIOR"
+                            ET.SubElement(enderDest, "UF").text = "EX"
+                            ET.SubElement(enderDest, "cPais").text = "156" # China
+                            ET.SubElement(enderDest, "xPais").text = "CHINA"
+                            ET.SubElement(dest, "indIEDest").text = "9"
                             
                             soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = soma_frete = soma_outras = 0
                             

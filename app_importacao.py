@@ -388,32 +388,44 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                            # 3. Cruzar com a Planilha (Excel Invoice)
                             df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
+                            
+                            # Busca robusta e inteligente pelo cabeçalho da tabela
                             start_row = -1
                             for i, row in df_inv.iterrows():
-                                row_str = str(row.values).upper()
-                                # Busca mais flexível pelo cabeçalho da tabela
-                                if any(termo in row_str for termo in ['DESCRIPTION', 'NAME', 'GOODS', 'ITEM', 'PRODUTO']):
+                                row_str = " ".join([str(val).upper() for val in row.values if pd.notna(val)])
+                                
+                                # Sistema de verificação dupla: a linha DEVE ter elementos claros de uma tabela de produtos
+                                tem_desc = any(kw in row_str for kw in ['DESCRIPTION', 'GOODS', 'ITEM', 'PRODUTO'])
+                                tem_qtd = any(kw in row_str for kw in ['QTY', 'QUANT', 'PCS', 'PIECE'])
+                                tem_valor = any(kw in row_str for kw in ['TOTAL', 'AMOUNT', 'PRICE', 'COST'])
+                                
+                                # Evita o falso positivo das linhas de "NAME: Stella Liu" (Shipper/Consignee)
+                                if tem_desc and (tem_qtd or tem_valor):
                                     start_row = i
                                     break
-                            
+                                    
                             if start_row != -1:
                                 df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
                             
                             cols = [str(c).upper().strip() for c in df_inv.columns]
                             df_inv.columns = cols
                             
-                            # Mapeamento dinâmico e flexível (Trata o erro "list index out of range")
-                            try:
-                                col_nome = next(c for c in cols if any(x in c for x in ['NAME', 'DESC', 'GOODS', 'ITEM', 'PRODUTO']))
-                                col_ncm = next(c for c in cols if any(x in c for x in ['HS', 'NCM', 'CODE', 'CODIGO']))
-                                col_qty = next(c for c in cols if any(x in c for x in ['QTY', 'QUANT', 'PCS', 'QTD']))
-                                col_total = next(c for c in cols if any(x in c for x in ['TOTAL', 'AMOUNT', 'PRICE', 'COST', 'VALOR']))
-                            except StopIteration:
-                                raise ValueError(f"As colunas não foram reconhecidas. Verifique se a linha de cabeçalho contém palavras como Name, Qty, Total. Colunas lidas pelo sistema: {cols}")
+                            # Mapeamento dinâmico e ultra-flexível (com fallbacks e sem quebrar se não achar)
+                            col_nome = next((c for c in cols if any(x in c for x in ['DESC', 'GOODS', 'ITEM', 'PRODUTO', 'NAME'])), None)
+                            col_ncm = next((c for c in cols if any(x in c for x in ['HS', 'NCM', 'CODE', 'CODIGO'])), None)
+                            col_qty = next((c for c in cols if any(x in c for x in ['QTY', 'QUANT', 'PCS', 'PIECE', 'QTD'])), None)
                             
-                            # Força a conversão para números para evitar erros de texto sujo na planilha
-                            df_inv[col_qty] = pd.to_numeric(df_inv[col_qty], errors='coerce')
-                            df_inv[col_total] = pd.to_numeric(df_inv[col_total], errors='coerce')
+                            # Para o Total, priorizar TOTAL/AMOUNT. Se não achar, procura PRICE/COST.
+                            col_total = next((c for c in cols if any(x in c for x in ['TOTAL', 'AMOUNT', 'VALOR'])), None)
+                            if not col_total:
+                                col_total = next((c for c in cols if any(x in c for x in ['PRICE', 'COST'])), None)
+                            
+                            if not col_nome or not col_qty or not col_total:
+                                raise ValueError(f"As colunas da planilha não foram reconhecidas. Encontradas: {cols}. O sistema precisa identificar claramente as colunas de 'Descrição', 'Quantidade' e 'Valor Total'.")
+                            
+                            # Limpeza severa: Força a conversão para números e remove linhas sujas (ex: sub-totais de texto no rodapé)
+                            df_inv[col_qty] = pd.to_numeric(df_inv[col_qty].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce')
+                            df_inv[col_total] = pd.to_numeric(df_inv[col_total].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce')
                             df_inv = df_inv.dropna(subset=[col_qty, col_total])
                             
                             # Totalização para fazer o Rateio Exato
@@ -421,13 +433,12 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
                             infNFe = ET.SubElement(nfe, "infNFe", Id="NFeGeradaCaasi", versao="4.00")
-                            
                             soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = soma_frete = 0
                             
                             for idx, row in df_inv.iterrows():
                                 vProd_usd = float(row[col_total])
                                 
-                                # Rateio Exato (Proporção do item dentro da nota)
+                                # A Mágica: Rateio Exato (Proporção do item dentro da nota)
                                 proporcao = vProd_usd / total_produtos_usd if total_produtos_usd > 0 else 0
                                 
                                 vProd_brl = vProd_usd * float(dados_dir['taxa_dolar'])
@@ -443,7 +454,11 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 prod = ET.SubElement(det, "prod")
                                 ET.SubElement(prod, "cProd").text = f"IMP-{idx+1:03d}"
                                 ET.SubElement(prod, "xProd").text = str(row[col_nome])[:120]
-                                ET.SubElement(prod, "NCM").text = str(row[col_ncm]).replace('.', '').strip()[:8]
+                                
+                                # Tratamento seguro para NCM caso o chinês esqueça de enviar a coluna
+                                ncm_val = str(row[col_ncm]).replace('.', '').strip()[:8] if col_ncm and pd.notna(row[col_ncm]) else "00000000"
+                                ET.SubElement(prod, "NCM").text = ncm_val
+                                
                                 ET.SubElement(prod, "CFOP").text = "3102"
                                 ET.SubElement(prod, "uCom").text = "UN"
                                 ET.SubElement(prod, "qCom").text = str(row[col_qty])
@@ -506,7 +521,6 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
 
                     except Exception as e:
                         st.error(f"Erro Crítico ao gerar o XML Integrado: Verifique os PDFs ou a Planilha. Detalhe técnico: {e}")
-
 # ==========================================
 # MÓDULO 4: CONTROLE DE ESTOQUE
 # ==========================================

@@ -9,6 +9,47 @@ from datetime import datetime
 
 st.set_page_config(page_title="CAASI Imports - Gestão", page_icon="🚢", layout="wide")
 
+# ==========================================
+# SISTEMA DE LOGIN E SEGURANÇA
+# ==========================================
+def check_password():
+    """Retorna `True` se o utilizador inserir a senha correta."""
+    # Define a senha de acesso (Pode ser alterada futuramente)
+    SENHA_SISTEMA = "caasi2026"
+
+    def password_entered():
+        """Verifica se a senha inserida está correta."""
+        if st.session_state["password"] == SENHA_SISTEMA:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Limpa a senha por segurança
+        else:
+            st.session_state["password_correct"] = False
+
+    if st.session_state.get("password_correct"):
+        return True
+
+    # Tela de Login (Se ainda não estiver logado)
+    st.markdown("<h1 style='text-align: center; color: #1F4E78;'>🔐 CAASI Imports - Acesso Restrito</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Por favor, insira a senha para aceder ao sistema.</p>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.text_input(
+            "Senha", type="password", on_change=password_entered, key="password"
+        )
+        if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+            st.error("😕 Senha incorreta. Tente novamente.")
+    
+    return False
+
+# Executa a verificação de login antes de carregar o resto da app
+if not check_password():
+    st.stop()  # Para a execução do código aqui se a senha não for inserida
+
+# ==========================================
+# CÓDIGO PRINCIPAL DA APP (Protegido)
+# ==========================================
+
 # Inicializar Variáveis na Sessão
 if 'carrinho' not in st.session_state:
     st.session_state['carrinho'] = []
@@ -16,6 +57,7 @@ if 'carrinho' not in st.session_state:
 # --- FUNÇÕES DE BANCO DE DADOS (Excel Local) ---
 DB_MASTERDATA = 'masterdata_caasi.xlsx'
 DB_ESTOQUE = 'estoque_caasi.xlsx'
+
 
 def carregar_dados(arquivo, colunas):
     if os.path.exists(arquivo):

@@ -386,23 +386,34 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             st.success(f"**Dados da DIR Extraídos pela IA:** Número: {dados_dir['numero_dir']} | I.I. Pago: R$ {dados_dir['valor_ii_brl']} | Frete: R$ {dados_dir['valor_frete_brl']} | Dólar: {dados_dir['taxa_dolar']:.4f}")
                             
-                            # 3. Cruzar com a Planilha (Excel Invoice)
+                           # 3. Cruzar com a Planilha (Excel Invoice)
                             df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
                             start_row = -1
                             for i, row in df_inv.iterrows():
-                                if 'DESCRIPTION OF GOODS' in str(row.values).upper() or 'NAME' in str(row.values).upper():
+                                row_str = str(row.values).upper()
+                                # Busca mais flexível pelo cabeçalho da tabela
+                                if any(termo in row_str for termo in ['DESCRIPTION', 'NAME', 'GOODS', 'ITEM', 'PRODUTO']):
                                     start_row = i
                                     break
+                            
                             if start_row != -1:
                                 df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
                             
                             cols = [str(c).upper().strip() for c in df_inv.columns]
                             df_inv.columns = cols
-                            col_nome = [c for c in cols if 'NAME' in c or 'DESCRIPTION' in c][0]
-                            col_ncm = [c for c in cols if 'HS CODE' in c or 'NCM' in c][0]
-                            col_qty = [c for c in cols if 'QTY' in c or 'QUANTITY' in c][0]
-                            col_total = [c for c in cols if 'TOTAL' in c and 'COST' in c or 'AMOUNT' in c][0]
                             
+                            # Mapeamento dinâmico e flexível (Trata o erro "list index out of range")
+                            try:
+                                col_nome = next(c for c in cols if any(x in c for x in ['NAME', 'DESC', 'GOODS', 'ITEM', 'PRODUTO']))
+                                col_ncm = next(c for c in cols if any(x in c for x in ['HS', 'NCM', 'CODE', 'CODIGO']))
+                                col_qty = next(c for c in cols if any(x in c for x in ['QTY', 'QUANT', 'PCS', 'QTD']))
+                                col_total = next(c for c in cols if any(x in c for x in ['TOTAL', 'AMOUNT', 'PRICE', 'COST', 'VALOR']))
+                            except StopIteration:
+                                raise ValueError(f"As colunas não foram reconhecidas. Verifique se a linha de cabeçalho contém palavras como Name, Qty, Total. Colunas lidas pelo sistema: {cols}")
+                            
+                            # Força a conversão para números para evitar erros de texto sujo na planilha
+                            df_inv[col_qty] = pd.to_numeric(df_inv[col_qty], errors='coerce')
+                            df_inv[col_total] = pd.to_numeric(df_inv[col_total], errors='coerce')
                             df_inv = df_inv.dropna(subset=[col_qty, col_total])
                             
                             # Totalização para fazer o Rateio Exato
@@ -410,12 +421,13 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
                             infNFe = ET.SubElement(nfe, "infNFe", Id="NFeGeradaCaasi", versao="4.00")
+                            
                             soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = soma_frete = 0
                             
                             for idx, row in df_inv.iterrows():
                                 vProd_usd = float(row[col_total])
                                 
-                                # A Mágica: Rateio Exato (Proporção do item dentro da nota)
+                                # Rateio Exato (Proporção do item dentro da nota)
                                 proporcao = vProd_usd / total_produtos_usd if total_produtos_usd > 0 else 0
                                 
                                 vProd_brl = vProd_usd * float(dados_dir['taxa_dolar'])

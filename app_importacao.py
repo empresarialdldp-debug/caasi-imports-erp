@@ -19,7 +19,7 @@ try:
     else:
         ia_configurada = False
         erro_ia_msg = "A chave 'GEMINI_API_KEY' não foi encontrada nos Secrets do Streamlit."
-except Exception as e:
+    except Exception as e:
     ia_configurada = False
     erro_ia_msg = f"Erro ao configurar a IA: {str(e)}"
 

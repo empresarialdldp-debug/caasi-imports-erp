@@ -19,12 +19,22 @@ try:
     else:
         ia_configurada = False
         erro_ia_msg = "A chave 'GEMINI_API_KEY' não foi encontrada nos Secrets do Streamlit."
-    except Exception as e:
+except Exception as e:
     ia_configurada = False
     erro_ia_msg = f"Erro ao configurar a IA: {str(e)}"
 
 # ==========================================
 # SISTEMA DE LOGIN E SEGURANÇA
+# ==========================================
+def check_password():
+    """Retorna `True` se o utilizador inserir a senha correta."""
+    SENHA_SISTEMA = "caasi2026"
+
+    def password_entered():
+        if st.session_state["password"] == SENHA_SISTEMA:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Limpa a senha por segurança
+        else:
             st.session_state["password_correct"] = False
 
     if st.session_state.get("password_correct"):
@@ -113,7 +123,7 @@ if menu == "1. 📊 Cotação e Precificação":
     with st.expander("🧠 2. Inteligência de Mercado (Mercado Livre)", expanded=True):
         st.markdown("Digite o nome do produto livremente e peça à IA para analisar os preços e concorrência no Brasil.")
         
-        # Digitação 100% livre e direta
+        # Digitação 100% livre e direta pelo Marcelo
         nome_produto = st.text_input("Nome do Produto a ser cotado:", placeholder="Ex: Capa de Silicone iPhone 15, Lanterna Tática X900...")
         
         col_pesq1, col_pesq2 = st.columns(2)
@@ -124,21 +134,21 @@ if menu == "1. 📊 Cotação e Precificação":
                 elif ia_configurada:
                     with st.spinner(f"A IA está pesquisando a base do Mercado Livre para '{nome_produto}'..."):
                         try:
-                            # Configurado para ser agressivo na busca de dados
+                            # Prompt inteligente para a IA buscar os dados do mercado
                             model = genai.GenerativeModel('gemini-1.5-pro')
                             prompt = f"""
                             Aja como o Diretor de Pricing da CAASI Imports, especialista no Mercado Livre Brasil.
                             Faça uma análise rápida e direta sobre o produto: '{nome_produto}'.
-                            Traga os seguintes dados em tópicos:
+                            Traga os seguintes dados em tópicos (estimativas realistas baseadas no mercado atual):
                             1. Preço médio de venda atual (R$).
                             2. Nível de concorrência (Baixo, Médio, Alto).
-                            3. Preço sugerido (R$) para o Marcelo entrar rasgando o mercado e ganhar dos top 5.
+                            3. Preço sugerido (R$) para entrar competitivo e ganhar a Buy Box dos top 5.
                             4. Palavras-chave mais buscadas para esse produto no ML.
                             """
                             resposta = model.generate_content(prompt)
                             st.info(resposta.text)
                         except Exception as e:
-                            st.error(f"Erro na IA: {e}")
+                            st.error(f"Erro de Comunicação com a IA: {e}")
                 else:
                     st.error("A IA não conseguiu conectar. Verifique os Secrets.")
                     
@@ -146,7 +156,7 @@ if menu == "1. 📊 Cotação e Precificação":
             if nome_produto:
                 termo_ml = nome_produto.replace(" ", "-")
                 link_ml = f"https://lista.mercadolivre.com.br/{termo_ml}"
-                st.markdown(f'<a href="{link_ml}" target="_blank"><button style="background-color:#ffe600; color:#333; border:none; padding:10px 20px; text-align:center; text-decoration:none; display:inline-block; font-size:16px; margin:4px 2px; cursor:pointer; border-radius:8px; width:100%; font-weight:bold;">📦 Ver com os próprios olhos no ML</button></a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{link_ml}" target="_blank"><button style="background-color:#ffe600; color:#333; border:none; padding:10px 20px; text-align:center; text-decoration:none; display:inline-block; font-size:16px; margin:4px 2px; cursor:pointer; border-radius:8px; width:100%; font-weight:bold;">📦 Ver este produto direto no ML</button></a>', unsafe_allow_html=True)
 
         col_B, col_C = st.columns(2)
         with col_B:

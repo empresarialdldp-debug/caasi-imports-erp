@@ -445,7 +445,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(ide, "natOp").text = "Compra de mercadorias (Importacao)"
                             ET.SubElement(ide, "mod").text = "55"
                             ET.SubElement(ide, "serie").text = "1"
-                            ET.SubElement(ide, "nNF").text = "0"
+                            ET.SubElement(ide, "nNF").text = "100009"
                             ET.SubElement(ide, "tpNF").text = "0" # 0 = Entrada (Importação)
                             ET.SubElement(ide, "idDest").text = "3" # 3 = Operação com exterior
                             ET.SubElement(ide, "tpImp").text = "1"

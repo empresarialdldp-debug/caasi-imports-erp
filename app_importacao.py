@@ -342,7 +342,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
         col_imp1, col_imp2 = st.columns(2)
         dir_icms = col_imp1.number_input("ICMS do Estado (%)", value=18.0) / 100
         dir_outras = col_imp2.number_input("Outras Despesas / Serv. Administrativos DHL/UPS (BRL)", value=91.08)
-
+        
         if 'numero_nfe_atual' not in st.session_state:
             st.session_state['numero_nfe_atual'] = 100009
             
@@ -489,8 +489,11 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(enderDest, "cPais").text = "156" # China
                             ET.SubElement(enderDest, "xPais").text = "CHINA"
                             ET.SubElement(dest, "indIEDest").text = "9"
-                            
+
                             soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = soma_frete = soma_outras = 0
+                            
+                            # Regra para Importação Simplificada
+                            aliq_ii = 0.60
                             
                             for idx, row in df_inv.iterrows():
                                 vProd_usd = float(row[col_total])

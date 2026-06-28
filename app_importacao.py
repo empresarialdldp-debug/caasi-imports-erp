@@ -460,48 +460,47 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(ide, "indFinal").text = "0"
                             ET.SubElement(ide, "indPres").text = "9" # 9 = Não presencial
                             
-                            # EMIT - CAASI (A sua empresa é a emitente da Nota de Entrada)
+                            # EMIT - FORNECEDOR ESTRANGEIRO (O Bling lê o 'emit' como Remetente/Fornecedor)
                             emit = ET.SubElement(infNFe, "emit")
-                            ET.SubElement(emit, "CNPJ").text = "44102562000111"
-                            ET.SubElement(emit, "xNome").text = "CAASI IMPORTACAO E COMERCIO LTDA"
+                            ET.SubElement(emit, "CNPJ").text = "00000000000000" # 14 Zeros para o Bling aceitar
+                            ET.SubElement(emit, "xNome").text = "FORNECEDOR ESTRANGEIRO"
                             enderEmit = ET.SubElement(emit, "enderEmit")
-                            ET.SubElement(enderEmit, "xLgr").text = "RUA JOSE FERREIRA LOPES"
-                            ET.SubElement(enderEmit, "nro").text = "197"
-                            ET.SubElement(enderEmit, "xBairro").text = "JD FLORENCA"
-                            ET.SubElement(enderEmit, "cMun").text = "3106200"
-                            ET.SubElement(enderEmit, "xMun").text = "BELO HORIZONTE"
-                            ET.SubElement(enderEmit, "UF").text = "MG"
-                            ET.SubElement(enderEmit, "CEP").text = "31520260"
-                            ET.SubElement(enderEmit, "cPais").text = "1058"
-                            ET.SubElement(enderEmit, "xPais").text = "BRASIL"
+                            ET.SubElement(enderEmit, "xLgr").text = "EXTERIOR"
+                            ET.SubElement(enderEmit, "nro").text = "SN"
+                            ET.SubElement(enderEmit, "xBairro").text = "EXTERIOR"
+                            ET.SubElement(enderEmit, "cMun").text = "9999999"
+                            ET.SubElement(enderEmit, "xMun").text = "EXTERIOR"
+                            ET.SubElement(enderEmit, "UF").text = "EX"
+                            ET.SubElement(enderEmit, "cPais").text = "156" # China
+                            ET.SubElement(enderEmit, "xPais").text = "CHINA"
                             
-                            # DEST - FORNECEDOR ESTRANGEIRO (O chinês é o destinatário na NFe de Entrada)
+                            # DEST - CAASI (Sua empresa é o Destinatário na visão da nota de entrada)
                             dest = ET.SubElement(infNFe, "dest")
-                            ET.SubElement(dest, "idEstrangeiro").text = "EXTERIOR" # Substitui o CNPJ para evitar o erro do Bling
-                            ET.SubElement(dest, "xNome").text = "FORNECEDOR ESTRANGEIRO"
+                            ET.SubElement(dest, "CNPJ").text = "44102562000111"
+                            ET.SubElement(dest, "xNome").text = "CAASI IMPORTACAO E COMERCIO LTDA"
                             enderDest = ET.SubElement(dest, "enderDest")
-                            ET.SubElement(enderDest, "xLgr").text = "EXTERIOR"
-                            ET.SubElement(enderDest, "nro").text = "SN"
-                            ET.SubElement(enderDest, "xBairro").text = "EXTERIOR"
-                            ET.SubElement(enderDest, "cMun").text = "9999999"
-                            ET.SubElement(enderDest, "xMun").text = "EXTERIOR"
-                            ET.SubElement(enderDest, "UF").text = "EX"
-                            ET.SubElement(enderDest, "cPais").text = "156" # China
-                            ET.SubElement(enderDest, "xPais").text = "CHINA"
+                            ET.SubElement(enderDest, "xLgr").text = "RUA JOSE FERREIRA LOPES"
+                            ET.SubElement(enderDest, "nro").text = "197"
+                            ET.SubElement(enderDest, "xBairro").text = "JD FLORENCA"
+                            ET.SubElement(enderDest, "cMun").text = "3106200"
+                            ET.SubElement(enderDest, "xMun").text = "BELO HORIZONTE"
+                            ET.SubElement(enderDest, "UF").text = "MG"
+                            ET.SubElement(enderDest, "CEP").text = "31520260"
+                            ET.SubElement(enderDest, "cPais").text = "1058"
+                            ET.SubElement(enderDest, "xPais").text = "BRASIL"
                             ET.SubElement(dest, "indIEDest").text = "9"
 
                             soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = soma_frete = soma_outras = 0
                             
-                            # Regra para Importação Simplificada
+                            # Regra para Importação Simplificada Fixa
                             aliq_ii = 0.60
                             
                             for idx, row in df_inv.iterrows():
                                 vProd_usd = float(row[col_total])
                                 qtd_item = float(row[col_qty])
-                                
                                 proporcao = vProd_usd / total_produtos_usd if total_produtos_usd > 0 else 0
                                 
-                                # CÁLCULO EXATO DO PDF: (Valor do Produto USD + Frete USD) * Dólar Desembaraço
+                                # CÁLCULO EXATO DO PDF PÁG 21: (Produto USD + Frete USD rateado) * Dólar
                                 frete_total_usd = float(dados_dir['valor_frete_brl']) / float(dados_dir['taxa_dolar'])
                                 rateio_frete_usd = frete_total_usd * proporcao
                                 
@@ -510,19 +509,20 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 
                                 rateio_outras_despesas = dir_outras * proporcao
                                 
-                                # O Valor Aduaneiro agora é o próprio valor do produto (FOB + Frete já embutido)
+                                # O Valor Aduaneiro é o próprio valor do produto (FOB + Frete embutido)
                                 vAduaneiro = vProd_brl
                                 
-                                # Imposto de Importação (60% na simplificada)
+                                # Imposto de Importação (60% cravado)
                                 vII = vAduaneiro * aliq_ii
                                 
-                                # ICMS por dentro: (Valor Aduaneiro + II + Outras Despesas) / (1 - aliquota)
+                                # ICMS (Base = Aduaneiro + II + Outras Despesas) / (1 - aliq_icms)
                                 base_icms = (vAduaneiro + vII + rateio_outras_despesas) / (1 - dir_icms)
                                 vICMS = base_icms * dir_icms
                                 
                                 det = ET.SubElement(infNFe, "det", nItem=str(idx+1))
                                 prod = ET.SubElement(det, "prod")
                                 ET.SubElement(prod, "cProd").text = f"IMP-{idx+1:03d}"
+                                ET.SubElement(prod, "cEAN").text = "SEM GTIN"
                                 ET.SubElement(prod, "xProd").text = str(row[col_nome])[:120]
                                 
                                 ncm_val = str(row[col_ncm]).replace('.', '').strip()[:8] if col_ncm and pd.notna(row[col_ncm]) else "00000000"
@@ -532,19 +532,23 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(prod, "uCom").text = "UN"
                                 ET.SubElement(prod, "qCom").text = f"{qtd_item:.4f}"
                                 
-                                # Valor Total do Produto (Já com o frete embutido conforme PDF)
+                                # Valor Total do Produto na Nota
                                 ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
+                                ET.SubElement(prod, "cEANTrib").text = "SEM GTIN"
                                 
-                                # Valor Unitário (Custo já embutido com frete)
+                                # Valor Unitário calculado
                                 vUnCom = vProd_brl / qtd_item if qtd_item > 0 else vProd_brl
+                                ET.SubElement(prod, "uTrib").text = "UN"
+                                ET.SubElement(prod, "qTrib").text = f"{qtd_item:.4f}"
                                 ET.SubElement(prod, "vUnCom").text = f"{vUnCom:.4f}"
                                 ET.SubElement(prod, "vUnTrib").text = f"{vUnCom:.4f}"
                                 
-                                # Frete zerado na tag vFrete porque já está no vProd
+                                # Zera Frete pois está no produto, mas preenche "vOutro"
                                 ET.SubElement(prod, "vFrete").text = "0.00"
                                 ET.SubElement(prod, "vOutro").text = f"{rateio_outras_despesas:.2f}"
+                                ET.SubElement(prod, "indTot").text = "1"
                                 
-                                # Tag da DI (Obrigatória no Bling e SEFAZ)
+                                # Tag da DI
                                 di = ET.SubElement(prod, "DI")
                                 ET.SubElement(di, "nDI").text = str(dados_dir['numero_dir'])
                                 ET.SubElement(di, "dDI").text = str(dados_dir['data_desembaraco'])
@@ -566,28 +570,28 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 soma_bc_icms += base_icms
                                 soma_icms += vICMS
                                 soma_ii += vII
-                                soma_frete += 0 # ZERADO, pois frete está no vProd
+                                soma_frete += 0
                                 soma_outras += rateio_outras_despesas
                                 
                                 imposto = ET.SubElement(det, "imposto")
                                 
-                                # ICMS CSOSN 900 (900 - Outros)
+                                # ICMS CSOSN 900
                                 icms = ET.SubElement(imposto, "ICMS")
                                 icmssn = ET.SubElement(icms, "ICMSSN900")
-                                ET.SubElement(icmssn, "orig").text = "1" # Estrangeira - Importação direta
+                                ET.SubElement(icmssn, "orig").text = "1" # 1 - Estrangeira Importação direta
                                 ET.SubElement(icmssn, "CSOSN").text = "900"
                                 ET.SubElement(icmssn, "modBC").text = "3" # Valor da Operação
                                 ET.SubElement(icmssn, "vBC").text = f"{base_icms:.2f}"
                                 ET.SubElement(icmssn, "pICMS").text = f"{dir_icms*100:.2f}"
                                 ET.SubElement(icmssn, "vICMS").text = f"{vICMS:.2f}"
                                 
-                                # IPI CST 49 (49 - Outras Entradas, Base e Valores Zerados)
+                                # IPI (CST 49)
                                 ipi = ET.SubElement(imposto, "IPI")
                                 ET.SubElement(ipi, "cEnq").text = "999"
                                 ipint = ET.SubElement(ipi, "IPINT")
                                 ET.SubElement(ipint, "CST").text = "49"
                                 
-                                # PIS CST 99 (99 - Outras Operações, Base e Valores Zerados)
+                                # PIS (CST 99)
                                 pis = ET.SubElement(imposto, "PIS")
                                 pisoutr = ET.SubElement(pis, "PISOutr")
                                 ET.SubElement(pisoutr, "CST").text = "99"
@@ -595,7 +599,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(pisoutr, "pPIS").text = "0.00"
                                 ET.SubElement(pisoutr, "vPIS").text = "0.00"
                                 
-                                # COFINS CST 99 (99 - Outras Operações, Base e Valores Zerados)
+                                # COFINS (CST 99)
                                 cofins = ET.SubElement(imposto, "COFINS")
                                 cofinsoutr = ET.SubElement(cofins, "COFINSOutr")
                                 ET.SubElement(cofinsoutr, "CST").text = "99"
@@ -603,7 +607,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(cofinsoutr, "pCOFINS").text = "0.00"
                                 ET.SubElement(cofinsoutr, "vCOFINS").text = "0.00"
                                 
-                                # Imposto de Importação
+                                # II
                                 ii_tag = ET.SubElement(imposto, "II")
                                 ET.SubElement(ii_tag, "vBC").text = f"{vAduaneiro:.2f}"
                                 ET.SubElement(ii_tag, "vDespAdu").text = "0.00"
@@ -625,8 +629,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(icmstot, "vCOFINS").text = "0.00"
                             ET.SubElement(icmstot, "vOutro").text = f"{soma_outras:.2f}"
                             
-                            # Valor Total da NF (Frete já está dentro de soma_prod_brl)
-                            # NF = Total Produtos + Total Outras Despesas + Total Imposto de Importacao + Total ICMS
+                            # Valor Total da NF
                             v_nf_total = soma_prod_brl + soma_outras + soma_ii + soma_icms
                             ET.SubElement(icmstot, "vNF").text = f"{v_nf_total:.2f}"
 

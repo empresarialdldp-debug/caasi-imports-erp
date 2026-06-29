@@ -6,6 +6,7 @@ import json
 import io
 import os
 import re
+import random
 from datetime import datetime
 import google.generativeai as genai
 

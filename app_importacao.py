@@ -345,7 +345,22 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
         dir_icms = col_imp2.number_input("ICMS do Estado (%)", value=18.0) / 100
         dir_outras = col_imp3.number_input("Outras Despesas DHL/UPS (BRL)", value=91.08)
         
-        st.info("💡 **Dica Bling:** No momento da importação do XML, opções como **'Estoque: Não cadastrar'**, **'Tipo de Item: Revenda'** e **'Presumido PIS/COFINS'** devem ser marcadas manualmente na interface do Bling, pois são configurações internas do ERP e não existem no padrão XML nacional da SEFAZ.")
+        st.markdown("### Configurações de Transporte")
+        col_transp1, col_transp2 = st.columns(2)
+        transportadora = col_transp1.selectbox("Transportadora (Courier)", ["UPS DO BRASIL", "DHL EXPRESS BRASIL", "FEDEX BRASIL", "Nenhum/Outro"])
+        qtd_volumes = col_transp2.number_input("Quantidade de Volumes", value=1, min_value=1, step=1)
+        
+        st.warning("""
+        📝 **CHECKLIST OBRIGATÓRIA PÓS-IMPORTAÇÃO NO BLING:**
+        
+        O formato XML da SEFAZ aceita apenas dados fiscais (valores). Opções internas do Bling **não podem** ser enviadas via XML. 
+        Após importar o XML gerado por este sistema para dentro do Bling, você **PRECISA** abrir a nota importada e realizar estes 4 passos manualmente em todos os itens:
+        
+        1. **Aba Importação:** Selecione a opção `Somar ICMS: Sim`.
+        2. **Aba Outros:** Em 'Presumido no cálculo do PIS/COFINS', marque `Sim`.
+        3. **Aba Outros:** Em 'Tipo do item', selecione `Mercadoria para Revenda`.
+        4. **Aba Estoque:** Marque `Não cadastrar` (para evitar duplicar o saldo de estoque).
+        """)
         
         if 'numero_nfe_atual' not in st.session_state:
             st.session_state['numero_nfe_atual'] = 100009
@@ -663,16 +678,45 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(icmstot, "vNF").text = f"{v_nf_total:.2f}"
                             ET.SubElement(icmstot, "vTotTrib").text = f"{soma_icms + soma_ii:.2f}"
 
-                            # Bloco de Transporte
+                            # Bloco de Transporte e Volumes
                             transp = ET.SubElement(infNFe, "transp")
-                            ET.SubElement(transp, "modFrete").text = "0"
+                            ET.SubElement(transp, "modFrete").text = "0" # 0 = Contratação do Frete por conta do Remetente (CIF)
+                            
+                            transporta = ET.SubElement(transp, "transporta")
+                            if transportadora == "UPS DO BRASIL":
+                                ET.SubElement(transporta, "CNPJ").text = "74155052000173"
+                                ET.SubElement(transporta, "xNome").text = "UPS DO BRASIL REMESSAS EXPRESSAS LTDA"
+                                ET.SubElement(transporta, "IE").text = "114953497113"
+                                ET.SubElement(transporta, "xEnder").text = "R. Dom Aguirre, 554"
+                                ET.SubElement(transporta, "xMun").text = "SAO PAULO"
+                                ET.SubElement(transporta, "UF").text = "SP"
+                            elif transportadora == "DHL EXPRESS BRASIL":
+                                ET.SubElement(transporta, "CNPJ").text = "58118019000108"
+                                ET.SubElement(transporta, "xNome").text = "DHL EXPRESS (BRAZIL) LTDA"
+                                ET.SubElement(transporta, "IE").text = "112613589110"
+                                ET.SubElement(transporta, "xEnder").text = "AV. OTAVIANO ALVES DE LIMA, 4000"
+                                ET.SubElement(transporta, "xMun").text = "SAO PAULO"
+                                ET.SubElement(transporta, "UF").text = "SP"
+                            elif transportadora == "FEDEX BRASIL":
+                                ET.SubElement(transporta, "CNPJ").text = "10970887000102"
+                                ET.SubElement(transporta, "xNome").text = "FEDERAL EXPRESS CORPORATION"
+                                ET.SubElement(transporta, "IE").text = "111425110118"
+                                ET.SubElement(transporta, "xEnder").text = "R. JOAO PRESTES MAIA, 200"
+                                ET.SubElement(transporta, "xMun").text = "SAO PAULO"
+                                ET.SubElement(transporta, "UF").text = "SP"
+
+                            vol = ET.SubElement(transp, "vol")
+                            ET.SubElement(vol, "qVol").text = str(qtd_volumes)
+                            ET.SubElement(vol, "esp").text = "Caixa(s)"
+                            ET.SubElement(vol, "pesoL").text = "0.000"
+                            ET.SubElement(vol, "pesoB").text = "0.000"
                             
                             # Bloco de Pagamento
                             pag = ET.SubElement(infNFe, "pag")
                             detPag = ET.SubElement(pag, "detPag")
-                            ET.SubElement(detPag, "tPag").text = "01"
+                            ET.SubElement(detPag, "tPag").text = "01" # 01 = Dinheiro
                             ET.SubElement(detPag, "vPag").text = f"{v_nf_total:.2f}"
-
+                            
                             xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
                             
                             st.session_state['numero_nfe_atual'] = numero_nfe + 1
@@ -682,6 +726,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
 
                     except Exception as e:
                         st.error(f"Erro Crítico ao gerar o XML Integrado: Verifique os PDFs ou a Planilha. Detalhe técnico: {e}")
+
 # ==========================================
 # MÓDULO 4: CONTROLE DE ESTOQUE
 # ==========================================

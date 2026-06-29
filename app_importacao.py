@@ -340,9 +340,12 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
         uploaded_dir = col_up2.file_uploader("2. PDF da DIR", type=['pdf'])
         uploaded_recibo = col_up3.file_uploader("3. PDF do Recibo/Imposto", type=['pdf'])
         
-        col_imp1, col_imp2 = st.columns(2)
-        dir_icms = col_imp1.number_input("ICMS do Estado (%)", value=18.0) / 100
-        dir_outras = col_imp2.number_input("Outras Despesas / Serv. Administrativos DHL/UPS (BRL)", value=91.08)
+        col_imp1, col_imp2, col_imp3 = st.columns(3)
+        nome_fornecedor = col_imp1.text_input("Fornecedor (Remetente)", value="SHANDONG SHY CLOUD TECH CO")
+        dir_icms = col_imp2.number_input("ICMS do Estado (%)", value=18.0) / 100
+        dir_outras = col_imp3.number_input("Outras Despesas DHL/UPS (BRL)", value=91.08)
+        
+        st.info("💡 **Dica Bling:** No momento da importação do XML, opções como **'Estoque: Não cadastrar'**, **'Tipo de Item: Revenda'** e **'Presumido PIS/COFINS'** devem ser marcadas manualmente na interface do Bling, pois são configurações internas do ERP e não existem no padrão XML nacional da SEFAZ.")
         
         if 'numero_nfe_atual' not in st.session_state:
             st.session_state['numero_nfe_atual'] = 100009
@@ -495,10 +498,10 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             # DEST - FORNECEDOR ESTRANGEIRO (Remetente real da Mercadoria)
                             # ATENÇÃO: No layout da SEFAZ NÃO EXISTE tag <remetente>. 
-                            # Em notas de ENTRADA (tpNF=0), a tag <dest> funciona como o FORNECEDOR (Remetente).
+                            # Em notas de ENTRADA (tpNF=0), a tag <dest> é lida como o FORNECEDOR (Remetente)
                             dest = ET.SubElement(infNFe, "dest")
                             ET.SubElement(dest, "idEstrangeiro").text = "00000"
-                            ET.SubElement(dest, "xNome").text = "FORNECEDOR ESTRANGEIRO" 
+                            ET.SubElement(dest, "xNome").text = nome_fornecedor.strip()[:60]
                             enderDest = ET.SubElement(dest, "enderDest")
                             ET.SubElement(enderDest, "xLgr").text = "EXTERIOR"
                             ET.SubElement(enderDest, "nro").text = "SN"
@@ -595,7 +598,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 icmssn = ET.SubElement(icms, "ICMSSN900")
                                 ET.SubElement(icmssn, "orig").text = "1" 
                                 ET.SubElement(icmssn, "CSOSN").text = "900"
-                                ET.SubElement(icmssn, "modBC").text = "0" # Conforme o seu XML!
+                                ET.SubElement(icmssn, "modBC").text = "0" # Conforme o seu XML validado!
                                 ET.SubElement(icmssn, "vBC").text = f"{base_icms:.2f}"
                                 ET.SubElement(icmssn, "pICMS").text = f"{dir_icms*100:.4f}"
                                 ET.SubElement(icmssn, "vICMS").text = f"{vICMS:.2f}"

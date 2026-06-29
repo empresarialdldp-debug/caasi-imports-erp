@@ -325,7 +325,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                 total.find('nfe:vICMS', ns).text = f"{soma_vICMS:.2f}"
 
             xml_str = ET.tostring(root, encoding='utf-8', xml_declaration=True)
-            st.success("✅ XML corrigido!")
+            st.success("✅ XML corregido exitosamente!")
             st.download_button("📥 Baixar XML Higienizado", xml_str, "XML_Bling.xml", "text/xml")
 
     with aba2:
@@ -340,27 +340,17 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
         uploaded_dir = col_up2.file_uploader("2. PDF da DIR", type=['pdf'])
         uploaded_recibo = col_up3.file_uploader("3. PDF do Recibo/Imposto", type=['pdf'])
         
-        col_imp1, col_imp2, col_imp3 = st.columns(3)
-        nome_fornecedor = col_imp1.text_input("Fornecedor (Remetente)", value="SHANDONG SHY CLOUD TECH CO")
-        dir_icms = col_imp2.number_input("ICMS do Estado (%)", value=18.0) / 100
-        dir_outras = col_imp3.number_input("Outras Despesas DHL/UPS (BRL)", value=91.08)
+        st.markdown("#### 1. Dados Fiscais e Despesas (Manuais)")
+        col_imp1, col_imp2 = st.columns(2)
+        dir_icms = col_imp1.number_input("ICMS do Estado (%)", value=18.0) / 100
+        dir_outras = col_imp2.number_input("Outras Despesas / Serv. Administrativos (BRL)", value=91.08)
         
-        st.markdown("### Configurações de Transporte")
-        col_transp1, col_transp2 = st.columns(2)
-        transportadora = col_transp1.selectbox("Transportadora (Courier)", ["UPS DO BRASIL", "DHL EXPRESS BRASIL", "FEDEX BRASIL", "Nenhum/Outro"])
-        qtd_volumes = col_transp2.number_input("Quantidade de Volumes", value=1, min_value=1, step=1)
-        
-        st.warning("""
-        📝 **CHECKLIST OBRIGATÓRIA PÓS-IMPORTAÇÃO NO BLING:**
-        
-        O formato XML da SEFAZ aceita apenas dados fiscais (valores). Opções internas do Bling **não podem** ser enviadas via XML. 
-        Após importar o XML gerado por este sistema para dentro do Bling, você **PRECISA** abrir a nota importada e realizar estes 4 passos manualmente em todos os itens:
-        
-        1. **Aba Importação:** Selecione a opção `Somar ICMS: Sim`.
-        2. **Aba Outros:** Em 'Presumido no cálculo do PIS/COFINS', marque `Sim`.
-        3. **Aba Outros:** Em 'Tipo do item', selecione `Mercadoria para Revenda`.
-        4. **Aba Estoque:** Marque `Não cadastrar` (para evitar duplicar o saldo de estoque).
-        """)
+        st.markdown("#### 2. Configurações Internas do Bling (Checklist visual)")
+        st.info("💡 **Atenção:** Coloquei estes botões abaixo para preencher, conforme pediu! No entanto, o padrão oficial de arquivo **.xml** do Governo não possui campos para guardar estas opções do Bling. Elas servem como checklist visual na nossa tela, mas ao importar o XML no Bling, precisará revisá-las. Para automatizar isto 100%, teremos de integrar a API futuramente.")
+        col_bling1, col_bling2, col_bling3 = st.columns(3)
+        bling_somar_icms = col_bling1.selectbox("Somar ICMS", ["Sim", "Não"])
+        bling_tipo_item = col_bling2.selectbox("Tipo de Item", ["Mercadoria para Revenda", "Matéria-Prima", "Uso e Consumo"])
+        bling_presumido = col_bling3.selectbox("Presumido PIS/COFINS", ["Sim", "Não"])
         
         if 'numero_nfe_atual' not in st.session_state:
             st.session_state['numero_nfe_atual'] = 100009
@@ -373,7 +363,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                     st.error("A Inteligência Artificial precisa estar configurada para extrair os dados dos PDFs. Verifique os Secrets.")
                 else:
                     try:
-                        with st.spinner("La IA está extrayendo el Número de la DIR, Dólar PTAX, Flete e Impuestos pagados..."):
+                        with st.spinner("A IA está a extrair os dados da DIR (Impostos, Transportadora, Volumes)..."):
                             # 1. Extrair Texto dos PDFs com PyPDF2
                             texto_dir = ""
                             leitor_dir = PyPDF2.PdfReader(uploaded_dir)
@@ -398,7 +388,10 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             "uf_desembaraco": (string, UF do local de desembaraço, Ex: "SP"),
                             "valor_frete_brl": (float, Valor Frete em R$, sem símbolo. Ex: 1174.26),
                             "valor_ii_brl": (float, Imposto Importação I.I. pago em R$. Ex: 2247.25),
-                            "taxa_dolar": (float, calcule com alta precisão dividindo o Valor Total Remessa BRL pelo Valor Total Remessa USD. Ex: 2571.16 / 489.0)
+                            "taxa_dolar": (float, calcule com alta precisão dividindo o Valor Total Remessa BRL pelo Valor Total Remessa USD. Ex: 2571.16 / 489.0),
+                            "transportadora": (string, identifique a courier: "UPS DO BRASIL", "DHL EXPRESS BRASIL" ou "FEDEX BRASIL". Caso não encontre retorne "Nenhuma"),
+                            "qtd_volumes": (int, quantidade de peças ou volumes indicados no documento. Ex: 1),
+                            "especie_vol": (string, especie do volume. Ex: "Caixa(s)")
                             """
                             resposta = model.generate_content(prompt)
                             
@@ -409,7 +402,11 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             dados_dir = json.loads(json_str.strip())
                             
-                            st.success(f"**Dados da DIR Extraídos pela IA:** Número: {dados_dir['numero_dir']} | I.I. Pago: R$ {dados_dir['valor_ii_brl']} | Frete: R$ {dados_dir['valor_frete_brl']} | Dólar: {dados_dir['taxa_dolar']:.4f}")
+                            transportadora = dados_dir.get('transportadora', 'Nenhuma')
+                            qtd_volumes = dados_dir.get('qtd_volumes', 1)
+                            especie_vol = dados_dir.get('especie_vol', 'Caixa(s)')
+                            
+                            st.success(f"**Dados Extraídos pela IA:** Número: {dados_dir['numero_dir']} | I.I. Pago: R$ {dados_dir['valor_ii_brl']} | Frete: R$ {dados_dir['valor_frete_brl']} | Transp: {transportadora} ({qtd_volumes} vols)")
                             
                             # 3. Cruzar com a Planilha (Excel Invoice) de Forma Ultrarrobusta
                             df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
@@ -678,45 +675,46 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(icmstot, "vNF").text = f"{v_nf_total:.2f}"
                             ET.SubElement(icmstot, "vTotTrib").text = f"{soma_icms + soma_ii:.2f}"
 
-                            # Bloco de Transporte e Volumes
+                            # Bloco de Transporte
                             transp = ET.SubElement(infNFe, "transp")
                             ET.SubElement(transp, "modFrete").text = "0" # 0 = Contratação do Frete por conta do Remetente (CIF)
                             
-                            transporta = ET.SubElement(transp, "transporta")
-                            if transportadora == "UPS DO BRASIL":
-                                ET.SubElement(transporta, "CNPJ").text = "74155052000173"
-                                ET.SubElement(transporta, "xNome").text = "UPS DO BRASIL REMESSAS EXPRESSAS LTDA"
-                                ET.SubElement(transporta, "IE").text = "114953497113"
-                                ET.SubElement(transporta, "xEnder").text = "R. Dom Aguirre, 554"
-                                ET.SubElement(transporta, "xMun").text = "SAO PAULO"
-                                ET.SubElement(transporta, "UF").text = "SP"
-                            elif transportadora == "DHL EXPRESS BRASIL":
-                                ET.SubElement(transporta, "CNPJ").text = "58118019000108"
-                                ET.SubElement(transporta, "xNome").text = "DHL EXPRESS (BRAZIL) LTDA"
-                                ET.SubElement(transporta, "IE").text = "112613589110"
-                                ET.SubElement(transporta, "xEnder").text = "AV. OTAVIANO ALVES DE LIMA, 4000"
-                                ET.SubElement(transporta, "xMun").text = "SAO PAULO"
-                                ET.SubElement(transporta, "UF").text = "SP"
-                            elif transportadora == "FEDEX BRASIL":
-                                ET.SubElement(transporta, "CNPJ").text = "10970887000102"
-                                ET.SubElement(transporta, "xNome").text = "FEDERAL EXPRESS CORPORATION"
-                                ET.SubElement(transporta, "IE").text = "111425110118"
-                                ET.SubElement(transporta, "xEnder").text = "R. JOAO PRESTES MAIA, 200"
-                                ET.SubElement(transporta, "xMun").text = "SAO PAULO"
-                                ET.SubElement(transporta, "UF").text = "SP"
+                            if transportadora != "Nenhuma":
+                                transporta = ET.SubElement(transp, "transporta")
+                                if "UPS" in transportadora:
+                                    ET.SubElement(transporta, "CNPJ").text = "74155052000173"
+                                    ET.SubElement(transporta, "xNome").text = "UPS DO BRASIL REMESSAS EXPRESSAS LTDA"
+                                    ET.SubElement(transporta, "IE").text = "114953497113"
+                                    ET.SubElement(transporta, "xEnder").text = "R. Dom Aguirre, 554"
+                                    ET.SubElement(transporta, "xMun").text = "SAO PAULO"
+                                    ET.SubElement(transporta, "UF").text = "SP"
+                                elif "DHL" in transportadora:
+                                    ET.SubElement(transporta, "CNPJ").text = "58118019000108"
+                                    ET.SubElement(transporta, "xNome").text = "DHL EXPRESS (BRAZIL) LTDA"
+                                    ET.SubElement(transporta, "IE").text = "112613589110"
+                                    ET.SubElement(transporta, "xEnder").text = "AV. OTAVIANO ALVES DE LIMA, 4000"
+                                    ET.SubElement(transporta, "xMun").text = "SAO PAULO"
+                                    ET.SubElement(transporta, "UF").text = "SP"
+                                elif "FEDEX" in transportadora:
+                                    ET.SubElement(transporta, "CNPJ").text = "10970887000102"
+                                    ET.SubElement(transporta, "xNome").text = "FEDERAL EXPRESS CORPORATION"
+                                    ET.SubElement(transporta, "IE").text = "111425110118"
+                                    ET.SubElement(transporta, "xEnder").text = "R. JOAO PRESTES MAIA, 200"
+                                    ET.SubElement(transporta, "xMun").text = "SAO PAULO"
+                                    ET.SubElement(transporta, "UF").text = "SP"
 
                             vol = ET.SubElement(transp, "vol")
                             ET.SubElement(vol, "qVol").text = str(qtd_volumes)
-                            ET.SubElement(vol, "esp").text = "Caixa(s)"
+                            ET.SubElement(vol, "esp").text = especie_vol
                             ET.SubElement(vol, "pesoL").text = "0.000"
                             ET.SubElement(vol, "pesoB").text = "0.000"
                             
-                            # Bloco de Pagamento
+                            # Bloco de Pagamento (Conforme sua imagem: Condição 0 Dias, Dinheiro)
                             pag = ET.SubElement(infNFe, "pag")
                             detPag = ET.SubElement(pag, "detPag")
                             ET.SubElement(detPag, "tPag").text = "01" # 01 = Dinheiro
                             ET.SubElement(detPag, "vPag").text = f"{v_nf_total:.2f}"
-                            
+
                             xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
                             
                             st.session_state['numero_nfe_atual'] = numero_nfe + 1

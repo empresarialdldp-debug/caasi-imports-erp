@@ -391,7 +391,8 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             "taxa_dolar": (float, calcule com alta precisão dividindo o Valor Total Remessa BRL pelo Valor Total Remessa USD. Ex: 2571.16 / 489.0),
                             "transportadora": (string, identifique a courier: "UPS DO BRASIL", "DHL EXPRESS BRASIL" ou "FEDEX BRASIL". Caso não encontre retorne "Nenhuma"),
                             "qtd_volumes": (int, quantidade de peças ou volumes indicados no documento. Ex: 1),
-                            "especie_vol": (string, especie do volume. Ex: "Caixa(s)")
+                            "especie_vol": (string, especie do volume. Ex: "Caixa(s)"),
+                            "nome_fornecedor": (string, nome da empresa estrangeira exportadora que consta nos documentos. Ex: "SHANDONG SHY CLOUD TECH CO")
                             """
                             resposta = model.generate_content(prompt)
                             
@@ -405,8 +406,9 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             transportadora = dados_dir.get('transportadora', 'Nenhuma')
                             qtd_volumes = dados_dir.get('qtd_volumes', 1)
                             especie_vol = dados_dir.get('especie_vol', 'Caixa(s)')
+                            nome_fornecedor = dados_dir.get('nome_fornecedor', 'FORNECEDOR ESTRANGEIRO').upper()
                             
-                            st.success(f"**Dados Extraídos pela IA:** Número: {dados_dir['numero_dir']} | I.I. Pago: R$ {dados_dir['valor_ii_brl']} | Frete: R$ {dados_dir['valor_frete_brl']} | Transp: {transportadora} ({qtd_volumes} vols)")
+                            st.success(f"**Dados Extraídos pela IA:** Fornecedor: {nome_fornecedor} | DIR: {dados_dir['numero_dir']} | I.I.: R$ {dados_dir['valor_ii_brl']} | Transp: {transportadora} ({qtd_volumes} vols)")
                             
                             # 3. Cruzar com a Planilha (Excel Invoice) de Forma Ultrarrobusta
                             df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)

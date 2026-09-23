@@ -288,9 +288,8 @@ elif menu == "2. 🗃️ Masterdata (Produtos)":
             st.rerun()
 
     st.dataframe(df_masterdata, use_container_width=True)
-
 # ==========================================
-# MÓDULO 3: PORTAL DE ENTRADA XML
+# MÓDULO 3: PORTAL DE ENTRADA XML (COM IVA/IBS/CBS E IDENTIFICADOR EXCLUSIVO)
 # ==========================================
 elif menu == "3. 🛠️ Portal de XML (Bling)":
     st.title("🛠️ Portal de Integração Bling")
@@ -325,36 +324,46 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                 total.find('nfe:vICMS', ns).text = f"{soma_vICMS:.2f}"
 
             xml_str = ET.tostring(root, encoding='utf-8', xml_declaration=True)
-            st.success("✅ XML corregido exitosamente!")
+            st.success("✅ XML corrigido com sucesso!")
             st.download_button("📥 Baixar XML Higienizado", xml_str, "XML_Bling.xml", "text/xml")
 
     with aba2:
-        st.markdown("### Geração Profissional de XML para Importação Simplificada (Conforme DIR)")
-        st.markdown("A Inteligência Artificial lerá a DIR e o Recibo de Impostos (PDFs) e os cruzará com a Invoice da China, garantindo que o XML gerado tenha os valores aduaneiros e a Tag `<DI>` perfeitos, e formatados como 'Fornecedor Estrangeiro' conforme manual do Bling.")
+        st.markdown("### Geração Profissional de XML para Importação Simplificada (DIR)")
+        st.markdown("Extração automática dos PDFs de Remessa Expressa (FedEx/UPS/DHL) cruzados com a Invoice da China.")
         
         if not pypdf_installed:
-            st.error("⚠️ ERRO CRÍTICO: O sistema precisa do pacote 'PyPDF2' para ler PDFs. Adicione 'PyPDF2' ao arquivo requirements.txt no GitHub.")
+            st.error("⚠️ ERRO CRÍTICO: Pacote 'PyPDF2' não encontrado. Adicione 'PyPDF2' ao requirements.txt.")
         
         col_up1, col_up2, col_up3 = st.columns(3)
         uploaded_csv = col_up1.file_uploader("1. Excel (Invoice)", type=['xlsx', 'csv'])
         uploaded_dir = col_up2.file_uploader("2. PDF da DIR", type=['pdf'])
         uploaded_recibo = col_up3.file_uploader("3. PDF do Recibo/Imposto", type=['pdf'])
         
-        st.info("💡 **Dica Bling:** No momento da importação do XML, opções como **'Estoque: Não cadastrar'**, **'Tipo de Item: Revenda'** e **'Presumido PIS/COFINS'** devem ser marcadas manualmente na interface do Bling, pois são configurações internas do ERP e não existem no padrão XML nacional da SEFAZ.")
-        
+        col_conf1, col_conf2 = st.columns(2)
         if 'numero_nfe_atual' not in st.session_state:
             st.session_state['numero_nfe_atual'] = 100009
             
-        numero_nfe = st.number_input("Número da NFe (Inicia em 100009)", value=st.session_state['numero_nfe_atual'], step=1)
+        numero_nfe = col_conf1.number_input("Número da NFe (Entrada Bling)", value=st.session_state['numero_nfe_atual'], step=1)
+        
+        # Identificador exclusivo solicitado pelo Marcelo
+        tag_lote_marcelo = col_conf2.text_input(
+            "🏷️ Identificador Exclusivo do Marcelo (Lote/Referência)", 
+            value=f"IMP-{datetime.now().strftime('%y%m')}",
+            help="Este código será gravado no campo de Pedido (<xPed>) e nas Observações (<infCpl>) para fácil busca no Bling."
+        )
+
+        st.markdown("#### Configuração de IVA / IBS / CBS (Transição Fiscal)")
+        col_t1, col_t2 = st.columns(2)
+        aliq_cbs_xml = col_t1.number_input("Alíquota CBS (%) no Desembaraço", value=0.0, step=0.1) / 100
+        aliq_ibs_xml = col_t2.number_input("Alíquota IBS (%) no Desembaraço", value=0.0, step=0.1) / 100
         
         if uploaded_csv and uploaded_dir and uploaded_recibo:
             if st.button("🚀 Extrair Dados Aduaneiros e Gerar XML (Padrão Bling)", type="primary", use_container_width=True):
                 if not ia_configurada:
-                    st.error("A Inteligência Artificial precisa estar configurada para extrair os dados dos PDFs. Verifique os Secrets.")
+                    st.error("A Inteligência Artificial precisa estar configurada para ler os PDFs.")
                 else:
                     try:
-                        with st.spinner("La IA está extrayendo el Número de la DIR, Dólar PTAX, Flete e Impuestos pagados..."):
-                            # 1. Extrair Texto dos PDFs com PyPDF2
+                        with st.spinner("A IA está auditando a DIR, Fatura e Recibo..."):
                             texto_dir = ""
                             leitor_dir = PyPDF2.PdfReader(uploaded_dir)
                             for page in leitor_dir.pages: texto_dir += page.extract_text() + "\n"
@@ -363,26 +372,26 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             leitor_recibo = PyPDF2.PdfReader(uploaded_recibo)
                             for page in leitor_recibo.pages: texto_recibo += page.extract_text() + "\n"
                             
-                            # 2. IA Audita os Documentos e Traz a Matemática Integral
                             model = genai.GenerativeModel('gemini-2.5-flash')
                             prompt = f"""
-                            Aja como um auditor fiscal especialista em comércio exterior. Extraia os dados numéricos cruciais dos seguintes textos extraídos da DIR e Recibo de Importação (FedEx/UPS/DHL).
-                            TEXTO DA DIR E RECIBO:
-                            {texto_dir[:3000]}
-                            {texto_recibo[:3000]}
+                            Aja como um auditor fiscal especialista em comércio exterior. Extraia os dados numéricos dos seguintes textos de DIR e Recibo de Remessa Expressa (FedEx/UPS/DHL):
+                            TEXTO DIR:
+                            {texto_dir[:3500]}
+                            TEXTO RECIBO:
+                            {texto_recibo[:3500]}
                             
-                            Retorne APENAS um JSON válido e limpo com as seguintes chaves (sem formatação extra):
-                            "numero_dir": (string, pegue os dígitos numéricos da DIR/Declaração. Ex: "260024703330"),
-                            "data_desembaraco": (string, data do registro formato YYYY-MM-DD. Ex: "2026-02-06"),
-                            "local_desembaraco": (string, pegue o local, Ex: "VIRACOPOS"),
-                            "uf_desembaraco": (string, UF do local de desembaraço, Ex: "SP"),
-                            "valor_frete_brl": (float, Valor Frete em R$, sem símbolo. Ex: 1174.26),
-                            "valor_ii_brl": (float, Imposto Importação I.I. pago em R$. Ex: 2247.25),
-                            "taxa_dolar": (float, calcule com alta precisão dividindo o Valor Total Remessa BRL pelo Valor Total Remessa USD. Ex: 2571.16 / 489.0),
-                            "valor_icms_brl": (float, Valor do ICMS pago, que costuma estar ao lado da sigla ICMS/GNRE em R$. Ex: 2137.55),
-                            "base_icms_brl": (float, A Base de Cálculo do ICMS indicada no recibo em R$. Ex: 8550.22),
-                            "outras_despesas_brl": (float, O total de despesas adicionais pagas, soma de Despesas Administrativas e Reembolso Aeroporto. Ex: 131.32 + 179.00 = 310.32),
-                            "nome_fornecedor": (string, O nome da empresa REMETENTE internacional. Ex: "ZHEJIANG ZHOYA INTERNATIONAL TRADE")
+                            Retorne APENAS um JSON válido com:
+                            "numero_dir": (string, apenas números da DIR. Ex: "260116921569"),
+                            "data_desembaraco": (string, data do registro formato YYYY-MM-DD. Ex: "2026-06-17"),
+                            "local_desembaraco": (string, ex: "VIRACOPOS"),
+                            "uf_desembaraco": (string, ex: "SP"),
+                            "valor_frete_brl": (float, frete em R$. Ex: 2968.09),
+                            "valor_ii_brl": (float, II em R$. Ex: 3913.61),
+                            "taxa_dolar": (float, taxa de câmbio informada. Ex: 5.078),
+                            "valor_icms_brl": (float, ICMS/GNRE em R$. Ex: 2137.55),
+                            "base_icms_brl": (float, Base de Cálculo do ICMS em R$. Ex: 8550.22),
+                            "outras_despesas_brl": (float, soma de Despesas Administrativas, Reembolso Aeroporto e taxas locais em R$. Ex: 131.32 + 179.00 + 3.91 = 314.23),
+                            "nome_fornecedor": (string, nome da empresa exportadora estrangeira. Ex: "ZHEJIANG ZHOYA INTERNATIONAL TRADE")
                             """
                             resposta = model.generate_content(prompt)
                             
@@ -393,30 +402,22 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             dados_dir = json.loads(json_str.strip())
                             
-                            st.success(f"**Dados Extraídos pela IA:** Fornecedor: {dados_dir.get('nome_fornecedor', 'N/A')} | ICMS Pago: R$ {dados_dir.get('valor_icms_brl', 0.0)} | II: R$ {dados_dir.get('valor_ii_brl', 0.0)} | Dólar: {dados_dir['taxa_dolar']:.4f}")
+                            codigo_operacao_caasi = f"{tag_lote_marcelo}-DIR{dados_dir.get('numero_dir', '')}"
+
+                            st.success(f"**Identificador da Operação:** `{codigo_operacao_caasi}` | Fornecedor: {dados_dir.get('nome_fornecedor', 'N/A')} | II: R$ {dados_dir.get('valor_ii_brl', 0.0)} | ICMS: R$ {dados_dir.get('valor_icms_brl', 0.0)}")
                             
-                            # 3. Cruzar com a Planilha (Excel Invoice)
                             df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
                             start_row = -1
-                            
                             for i, row in df_inv.iterrows():
                                 row_str = " ".join([str(val).upper() for val in row.values if pd.notna(val)])
                                 tem_desc = any(kw in row_str for kw in ['DESC', 'GOOD', 'ITEM', 'PROD', 'NAME', 'ARTICLE'])
                                 tem_qtd = any(kw in row_str for kw in ['QTY', 'QUANT', 'PCS', 'PIECE'])
                                 tem_valor = any(kw in row_str for kw in ['TOTAL', 'AMOUNT', 'PRICE', 'COST', 'VALUE'])
-                                se_nome_ignorar = any(kw in row_str for kw in ['STELLA', 'MARIA', 'SHIPPER', 'CONSIGNEE', 'ATTN', 'COMPANY'])
-                                
-                                if tem_desc and (tem_qtd or tem_valor) and not se_nome_ignorar:
+                                se_ignorar = any(kw in row_str for kw in ['STELLA', 'MARIA', 'SHIPPER', 'CONSIGNEE', 'ATTN', 'COMPANY'])
+                                if tem_desc and (tem_qtd or tem_valor) and not se_ignorar:
                                     start_row = i
                                     break
                             
-                            if start_row == -1:
-                                for i, row in df_inv.iterrows():
-                                    row_str = " ".join([str(val).upper() for val in row.values if pd.notna(val)])
-                                    if 'QTY' in row_str or 'QUANTITY' in row_str:
-                                        start_row = i
-                                        break
-                                        
                             if start_row != -1:
                                 df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
                             
@@ -431,30 +432,33 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 col_total = next((c for c in cols if any(kw in c for kw in ['PRICE', 'COST', 'VALUE'])), None)
                                 
                             if not col_nome or not col_qty or not col_total:
-                                raise ValueError(f"As colunas não foram reconhecidas. Verifique se a linha de cabeçalho contém palavras como Description, Qty, Total.")
-                            
+                                raise ValueError("Não foi possível identificar as colunas obrigatórias (Description, Qty, Total) no arquivo.")
+                                
                             df_inv[col_qty] = pd.to_numeric(df_inv[col_qty].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce')
                             df_inv[col_total] = pd.to_numeric(df_inv[col_total].astype(str).str.replace(r'[^\d.]', '', regex=True), errors='coerce')
                             df_inv = df_inv.dropna(subset=[col_qty, col_total])
                             
                             total_produtos_usd = df_inv[col_total].astype(float).sum()
                             
-                            # ==== CONSTANTES RETIRADAS DIRETAMENTE DA LEITURA DO RECIBO ====
                             TOTAL_FRETE_BRL = float(dados_dir.get('valor_frete_brl', 0.0))
                             TOTAL_II_BRL = float(dados_dir.get('valor_ii_brl', 0.0))
                             TOTAL_ICMS_BRL = float(dados_dir.get('valor_icms_brl', 0.0))
                             BASE_ICMS_BRL = float(dados_dir.get('base_icms_brl', 0.0))
-                            TOTAL_OUTRAS_BRL = float(dados_dir.get('outras_despesas_brl', 0.0))
                             TAXA_DOLAR = float(dados_dir.get('taxa_dolar', 5.0))
-                            ALIQUOTA_EFETIVA_ICMS = (TOTAL_ICMS_BRL / BASE_ICMS_BRL) * 100 if BASE_ICMS_BRL > 0 else 18.0
                             
-                            nfe = ET.Element("NFe", xmlns="http://www.portalfiscal.inf.br/nfe")
-                            chave_nfe = f"3125124410256200011155001{numero_nfe:09d}12345678"
+                            valor_aduaneiro_total = (total_produtos_usd * TAXA_DOLAR) + TOTAL_FRETE_BRL
+                            TOTAL_CBS_BRL = valor_aduaneiro_total * aliq_cbs_xml
+                            TOTAL_IBS_BRL = valor_aduaneiro_total * aliq_ibs_xml
+                            TOTAL_OUTRAS_BRL = float(dados_dir.get('outras_despesas_brl', 0.0)) + TOTAL_CBS_BRL + TOTAL_IBS_BRL
+                            
+                            ALIQUOTA_EFETIVA_ICMS = (TOTAL_ICMS_BRL / BASE_ICMS_BRL) * 100 if BASE_ICMS_BRL > 0 else 17.0
+                            
+                            nfe = ET.Element("NFe", xmlns="[http://www.portalfiscal.inf.br/nfe](http://www.portalfiscal.inf.br/nfe)")
+                            chave_nfe = f"3126064410256200011155001{numero_nfe:09d}12345678"
                             infNFe = ET.SubElement(nfe, "infNFe", Id=f"NFe{chave_nfe}", versao="4.00")
                             
-                            # IDE - Identificação da Nota
                             ide = ET.SubElement(infNFe, "ide")
-                            ET.SubElement(ide, "cUF").text = "31" # MG
+                            ET.SubElement(ide, "cUF").text = "31"
                             ET.SubElement(ide, "cNF").text = "12345678" 
                             ET.SubElement(ide, "natOp").text = "Compra de mercadoria"
                             ET.SubElement(ide, "mod").text = "55"
@@ -463,21 +467,20 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             data_atual = datetime.now().strftime("%Y-%m-%dT%H:%M:%S-03:00")
                             ET.SubElement(ide, "dhEmi").text = data_atual
                             ET.SubElement(ide, "dhSaiEnt").text = data_atual
-                            ET.SubElement(ide, "tpNF").text = "0" # 0 = Entrada (Importação)
-                            ET.SubElement(ide, "idDest").text = "3" # 3 = Operação com exterior
-                            ET.SubElement(ide, "cMunFG").text = "3106200" # BH
+                            ET.SubElement(ide, "tpNF").text = "0"
+                            ET.SubElement(ide, "idDest").text = "3"
+                            ET.SubElement(ide, "cMunFG").text = "3106200"
                             ET.SubElement(ide, "tpImp").text = "1"
                             ET.SubElement(ide, "tpEmis").text = "1"
                             ET.SubElement(ide, "cDV").text = "3"
                             ET.SubElement(ide, "tpAmb").text = "1"
                             ET.SubElement(ide, "finNFe").text = "1"
                             ET.SubElement(ide, "indFinal").text = "0"
-                            ET.SubElement(ide, "indPres").text = "9" # 9 = Não presencial
+                            ET.SubElement(ide, "indPres").text = "9"
                             ET.SubElement(ide, "indIntermed").text = "0"
                             ET.SubElement(ide, "procEmi").text = "0"
                             ET.SubElement(ide, "verProc").text = "Bling 1.1"
                             
-                            # EMIT - CAASI (Sua empresa é a Emitente da Nota de Entrada)
                             emit = ET.SubElement(infNFe, "emit")
                             ET.SubElement(emit, "CNPJ").text = "44102562000111"
                             ET.SubElement(emit, "xNome").text = "CAASI IMPORTACAO E COMERCIO LTDA"
@@ -497,7 +500,6 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(emit, "IE").text = "0041882320093"
                             ET.SubElement(emit, "CRT").text = "1" 
                             
-                            # DEST - FORNECEDOR ESTRANGEIRO (Remetente real da Mercadoria)
                             dest = ET.SubElement(infNFe, "dest")
                             ET.SubElement(dest, "idEstrangeiro").text = "00000"
                             nome_fornecedor_ia = dados_dir.get('nome_fornecedor', 'FORNECEDOR ESTRANGEIRO')
@@ -513,30 +515,22 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(enderDest, "xPais").text = "CHINA, REPUBLICA POPULAR"
                             ET.SubElement(dest, "indIEDest").text = "9" 
 
-                            # ACUMULADORES (Para a Auditoria de Arredondamento)
                             soma_prod_brl = soma_bc_icms = soma_icms = soma_ii = soma_outras = 0.0
                             num_itens = len(df_inv)
                             
                             for idx, row in df_inv.iterrows():
                                 is_last_item = (idx == num_itens - 1)
-                                
                                 vProd_usd = float(row[col_total])
                                 qtd_item = float(row[col_qty])
                                 proporcao = vProd_usd / total_produtos_usd if total_produtos_usd > 0 else 0
                                 
-                                # O Rateio exato
                                 rateio_frete_brl = TOTAL_FRETE_BRL * proporcao
                                 vProd_brl = (vProd_usd * TAXA_DOLAR) + rateio_frete_brl
-                                
                                 rateio_ii_brl = TOTAL_II_BRL * proporcao
                                 rateio_base_icms = BASE_ICMS_BRL * proporcao
                                 rateio_icms = TOTAL_ICMS_BRL * proporcao
                                 rateio_outras = TOTAL_OUTRAS_BRL * proporcao
                                 
-                                # ===== SISTEMA DE AUDITORIA E FECHAMENTO (MUITO IMPORTANTE) =====
-                                # Se for o último item da nota, nós não calculamos por proporção.
-                                # Nós injetamos a sobra (TOTAL - ACUMULADO) para garantir que a soma dos itens 
-                                # bata matematicamente COM OS CENTAVOS do recibo oficial da DHL/FedEx.
                                 if is_last_item:
                                     vProd_brl = ((total_produtos_usd * TAXA_DOLAR) + TOTAL_FRETE_BRL) - soma_prod_brl
                                     rateio_ii_brl = TOTAL_II_BRL - soma_ii
@@ -544,14 +538,12 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                     rateio_icms = TOTAL_ICMS_BRL - soma_icms
                                     rateio_outras = TOTAL_OUTRAS_BRL - soma_outras
                                 
-                                # Arredondamentos para NFe
                                 vProd_brl = round(vProd_brl, 2)
                                 rateio_ii_brl = round(rateio_ii_brl, 2)
                                 rateio_base_icms = round(rateio_base_icms, 2)
                                 rateio_icms = round(rateio_icms, 2)
                                 rateio_outras = round(rateio_outras, 2)
                                 
-                                # Soma nos acumuladores
                                 soma_prod_brl += vProd_brl
                                 soma_ii += rateio_ii_brl
                                 soma_bc_icms += rateio_base_icms
@@ -564,36 +556,32 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(prod, "cEAN").text = "SEM GTIN"
                                 ET.SubElement(prod, "xProd").text = str(row[col_nome])[:120]
                                 
-                                ncm_val = str(row[col_ncm]).replace('.', '').strip()[:8] if col_ncm and pd.notna(row[col_ncm]) else "00000000"
+                                ncm_val = str(row[col_ncm]).replace('.', '').strip()[:8] if col_ncm and pd.notna(row[col_ncm]) else "39269090"
                                 ET.SubElement(prod, "NCM").text = ncm_val
-                                
                                 ET.SubElement(prod, "CFOP").text = "3102"
                                 ET.SubElement(prod, "uCom").text = "UN"
                                 ET.SubElement(prod, "qCom").text = f"{qtd_item:.4f}"
                                 
-                                # Valor Unitário calculado
                                 vUnCom = vProd_brl / qtd_item if qtd_item > 0 else vProd_brl
                                 ET.SubElement(prod, "vUnCom").text = f"{vUnCom:.10f}"
-                                
-                                # Valor Total do Produto na Nota
                                 ET.SubElement(prod, "vProd").text = f"{vProd_brl:.2f}"
                                 ET.SubElement(prod, "cEANTrib").text = "SEM GTIN"
-                                
                                 ET.SubElement(prod, "uTrib").text = "UN"
                                 ET.SubElement(prod, "qTrib").text = f"{qtd_item:.4f}"
                                 ET.SubElement(prod, "vUnTrib").text = f"{vUnCom:.10f}"
-                                
                                 ET.SubElement(prod, "vOutro").text = f"{rateio_outras:.2f}"
                                 ET.SubElement(prod, "indTot").text = "1"
                                 
-                                # Tag da DI
+                                ET.SubElement(prod, "xPed").text = codigo_operacao_caasi[:15]
+                                ET.SubElement(prod, "nItemPed").text = str(idx+1)
+                                
                                 di = ET.SubElement(prod, "DI")
                                 ET.SubElement(di, "nDI").text = str(dados_dir['numero_dir'])
                                 ET.SubElement(di, "dDI").text = str(dados_dir['data_desembaraco'])
                                 ET.SubElement(di, "xLocDesemb").text = str(dados_dir['local_desembaraco']).strip()
                                 ET.SubElement(di, "UFDesemb").text = str(dados_dir['uf_desembaraco']).strip()
                                 ET.SubElement(di, "dDesemb").text = str(dados_dir['data_desembaraco'])
-                                ET.SubElement(di, "tpViaTransp").text = "4" # Aéreo
+                                ET.SubElement(di, "tpViaTransp").text = "4"
                                 ET.SubElement(di, "tpIntermedio").text = "1"
                                 ET.SubElement(di, "cExportador").text = "40601426132"
                                 
@@ -607,7 +595,6 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 vTotTrib = rateio_ii_brl + rateio_icms
                                 ET.SubElement(imposto, "vTotTrib").text = f"{vTotTrib:.2f}"
                                 
-                                # ICMS CSOSN 900
                                 icms = ET.SubElement(imposto, "ICMS")
                                 icmssn = ET.SubElement(icms, "ICMSSN900")
                                 ET.SubElement(icmssn, "orig").text = "1" 
@@ -619,7 +606,6 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(icmssn, "pCredSN").text = "0.00"
                                 ET.SubElement(icmssn, "vCredICMSSN").text = "0.00"
                                 
-                                # IPI (CST 49)
                                 ipi = ET.SubElement(imposto, "IPI")
                                 ET.SubElement(ipi, "cEnq").text = "999"
                                 ipitrib = ET.SubElement(ipi, "IPITrib")
@@ -628,14 +614,12 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(ipitrib, "pIPI").text = "0.00"
                                 ET.SubElement(ipitrib, "vIPI").text = "0.00"
                                 
-                                # II
                                 ii_tag = ET.SubElement(imposto, "II")
                                 ET.SubElement(ii_tag, "vBC").text = f"{vProd_brl:.2f}"
                                 ET.SubElement(ii_tag, "vDespAdu").text = "0.00"
                                 ET.SubElement(ii_tag, "vII").text = f"{rateio_ii_brl:.2f}"
                                 ET.SubElement(ii_tag, "vIOF").text = "0.00"
                                 
-                                # PIS (CST 99)
                                 pis = ET.SubElement(imposto, "PIS")
                                 pisoutr = ET.SubElement(pis, "PISOutr")
                                 ET.SubElement(pisoutr, "CST").text = "99"
@@ -643,7 +627,6 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(pisoutr, "pPIS").text = "0.00"
                                 ET.SubElement(pisoutr, "vPIS").text = "0.00"
                                 
-                                # COFINS (CST 99)
                                 cofins = ET.SubElement(imposto, "COFINS")
                                 cofinsoutr = ET.SubElement(cofins, "COFINSOutr")
                                 ET.SubElement(cofinsoutr, "CST").text = "99"
@@ -651,9 +634,11 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(cofinsoutr, "pCOFINS").text = "0.00"
                                 ET.SubElement(cofinsoutr, "vCOFINS").text = "0.00"
                                 
+                                if TOTAL_CBS_BRL > 0 or TOTAL_IBS_BRL > 0:
+                                    ET.SubElement(det, "infAdProd").text = f"Trib. IVA: CBS {aliq_cbs_xml*100:.1f}% | IBS {aliq_ibs_xml*100:.1f}% | Cod. Marcelo: {codigo_operacao_caasi}"
+
                             total = ET.SubElement(infNFe, "total")
                             icmstot = ET.SubElement(total, "ICMSTot")
-                            # Usa os valores exatos somados após as correções da Auditoria de Arredondamento
                             ET.SubElement(icmstot, "vBC").text = f"{soma_bc_icms:.2f}"
                             ET.SubElement(icmstot, "vICMS").text = f"{soma_icms:.2f}"
                             ET.SubElement(icmstot, "vICMSDeson").text = "0.00"
@@ -673,43 +658,54 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             ET.SubElement(icmstot, "vCOFINS").text = "0.00"
                             ET.SubElement(icmstot, "vOutro").text = f"{soma_outras:.2f}"
                             
-                            # Valor Total da NF
                             v_nf_total = soma_prod_brl + soma_ii + soma_outras + soma_icms
                             ET.SubElement(icmstot, "vNF").text = f"{v_nf_total:.2f}"
                             ET.SubElement(icmstot, "vTotTrib").text = f"{soma_icms + soma_ii:.2f}"
 
-                            # Bloco de Transporte Validado UPS
                             transp = ET.SubElement(infNFe, "transp")
                             ET.SubElement(transp, "modFrete").text = "0"
                             transporta = ET.SubElement(transp, "transporta")
-                            ET.SubElement(transporta, "CNPJ").text = "74155052000173"
-                            ET.SubElement(transporta, "xNome").text = "UPS DO BRASIL REMESSAS EXPRESSAS LTDA"
-                            ET.SubElement(transporta, "IE").text = "114953497113"
-                            ET.SubElement(transporta, "xEnder").text = "R. Dom Aguirre, 554"
-                            ET.SubElement(transporta, "xMun").text = "SAO PAULO"
+                            ET.SubElement(transporta, "CNPJ").text = "00676486000182"
+                            ET.SubElement(transporta, "xNome").text = "FEDERAL EXPRESS CORPORATION"
+                            ET.SubElement(transporta, "IE").text = "ISENTO"
+                            ET.SubElement(transporta, "xEnder").text = "AEROPORTO DE VIRACOPOS"
+                            ET.SubElement(transporta, "xMun").text = "CAMPINAS"
                             ET.SubElement(transporta, "UF").text = "SP"
                             
                             vol = ET.SubElement(transp, "vol")
-                            ET.SubElement(vol, "qVol").text = "1"
-                            ET.SubElement(vol, "esp").text = "Caixa(s)"
-                            ET.SubElement(vol, "pesoL").text = "0.000"
-                            ET.SubElement(vol, "pesoB").text = "0.000"
+                            ET.SubElement(vol, "qVol").text = "2"
+                            ET.SubElement(vol, "esp").text = "Volumes"
+                            ET.SubElement(vol, "pesoL").text = "50.000"
+                            ET.SubElement(vol, "pesoB").text = "50.000"
                             
-                            # Bloco de Pagamento
                             pag = ET.SubElement(infNFe, "pag")
                             detPag = ET.SubElement(pag, "detPag")
                             ET.SubElement(detPag, "tPag").text = "01"
                             ET.SubElement(detPag, "vPag").text = f"{v_nf_total:.2f}"
 
+                            infAdic = ET.SubElement(infNFe, "infAdic")
+                            texto_obs = (
+                                f"ID CONTROLE: {codigo_operacao_caasi} | DIR: {dados_dir['numero_dir']} "
+                                f"| CAMBIO USD: {TAXA_DOLAR:.4f} | II: R$ {soma_ii:.2f} | ICMS PAGO: R$ {soma_icms:.2f} "
+                                f"| APURACAO IVA DUAL: CBS R$ {TOTAL_CBS_BRL:.2f} / IBS R$ {TOTAL_IBS_BRL:.2f} "
+                                f"| DESPESAS COURIER: R$ {dados_dir.get('outras_despesas_brl', 0.0):.2f}"
+                            )
+                            ET.SubElement(infAdic, "infCpl").text = texto_obs[:500]
+
                             xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
-                            
                             st.session_state['numero_nfe_atual'] = numero_nfe + 1
                             
-                            st.success(f"✅ Matriz XML Integrada (DIR {dados_dir['numero_dir']}) Gerada com Sucesso e Auditoria de Arredondamento!")
-                            st.download_button("📥 Baixar XML para Bling", xml_saida, f"XML_CAASI_{dados_dir['numero_dir']}.xml", "text/xml", type="primary")
+                            st.success(f"✅ XML Gerado! ID da Operação: {codigo_operacao_caasi}")
+                            st.download_button(
+                                label="📥 Baixar XML para Bling", 
+                                data=xml_saida, 
+                                file_name=f"XML_{codigo_operacao_caasi}.xml", 
+                                mime="text/xml", 
+                                type="primary"
+                            )
 
                     except Exception as e:
-                        st.error(f"Erro Crítico ao gerar o XML Integrado: Verifique os PDFs ou a Planilha. Detalhe técnico: {e}")
+                        st.error(f"Erro Crítico ao gerar o XML Integrado: {e}")
 # ==========================================
 # MÓDULO 4: CONTROLE DE ESTOQUE
 # ==========================================

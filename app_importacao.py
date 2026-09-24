@@ -289,7 +289,7 @@ elif menu == "2. 🗃️ Masterdata (Produtos)":
 
     st.dataframe(df_masterdata, use_container_width=True)
 # ==========================================
-# MÓDULO 3: PORTAL DE ENTRADA XML (COM IVA/IBS/CBS E IDENTIFICADOR EXCLUSIVO)
+# MÓDULO 3: PORTAL DE ENTRADA XML (COM RESUMO VISUAL ESPELHO BLING)
 # ==========================================
 elif menu == "3. 🛠️ Portal de XML (Bling)":
     st.title("🛠️ Portal de Integração Bling")
@@ -349,7 +349,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
         tag_lote_marcelo = col_conf2.text_input(
             "🏷️ Identificador Exclusivo do Marcelo (Lote/Referência)", 
             value=f"IMP-{datetime.now().strftime('%y%m')}",
-            help="Este código será gravado no campo de Pedido (<xPed>) e nas Observações (<infCpl>) para fácil busca no Bling."
+            help="Gravado em <xPed>, nas observações <infCpl> e no nome do arquivo."
         )
 
         st.markdown("#### Configuração de IVA / IBS / CBS (Transição Fiscal)")
@@ -401,11 +401,9 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             else: json_str = json_str.replace("```", "")
                             
                             dados_dir = json.loads(json_str.strip())
-                            
                             codigo_operacao_caasi = f"{tag_lote_marcelo}-DIR{dados_dir.get('numero_dir', '')}"
 
-                            st.success(f"**Identificador da Operação:** `{codigo_operacao_caasi}` | Fornecedor: {dados_dir.get('nome_fornecedor', 'N/A')} | II: R$ {dados_dir.get('valor_ii_brl', 0.0)} | ICMS: R$ {dados_dir.get('valor_icms_brl', 0.0)}")
-                            
+                            # Leitura da planilha da Invoice
                             df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
                             start_row = -1
                             for i, row in df_inv.iterrows():
@@ -635,7 +633,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(cofinsoutr, "vCOFINS").text = "0.00"
                                 
                                 if TOTAL_CBS_BRL > 0 or TOTAL_IBS_BRL > 0:
-                                    ET.SubElement(det, "infAdProd").text = f"Trib. IVA: CBS {aliq_cbs_xml*100:.1f}% | IBS {aliq_ibs_xml*100:.1f}% | Cod. Marcelo: {codigo_operacao_caasi}"
+                                    ET.SubElement(det, "infAdProd").text = f"Trib. IVA: CBS {aliq_cbs_xml*100:.1f}% | IBS {aliq_ibs_xml*100:.1f}% | Ref: {codigo_operacao_caasi}"
 
                             total = ET.SubElement(infNFe, "total")
                             icmstot = ET.SubElement(total, "ICMSTot")
@@ -687,7 +685,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             texto_obs = (
                                 f"ID CONTROLE: {codigo_operacao_caasi} | DIR: {dados_dir['numero_dir']} "
                                 f"| CAMBIO USD: {TAXA_DOLAR:.4f} | II: R$ {soma_ii:.2f} | ICMS PAGO: R$ {soma_icms:.2f} "
-                                f"| APURACAO IVA DUAL: CBS R$ {TOTAL_CBS_BRL:.2f} / IBS R$ {TOTAL_IBS_BRL:.2f} "
+                                f"| IVA DUAL: CBS R$ {TOTAL_CBS_BRL:.2f} / IBS R$ {TOTAL_IBS_BRL:.2f} "
                                 f"| DESPESAS COURIER: R$ {dados_dir.get('outras_despesas_brl', 0.0):.2f}"
                             )
                             ET.SubElement(infAdic, "infCpl").text = texto_obs[:500]
@@ -695,13 +693,40 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             xml_saida = ET.tostring(nfe, encoding='utf-8', xml_declaration=True)
                             st.session_state['numero_nfe_atual'] = numero_nfe + 1
                             
-                            st.success(f"✅ XML Gerado! ID da Operação: {codigo_operacao_caasi}")
+                            # =========================================================
+                            # 👁️ PAINEL DE CONFERÊNCIA VISUAL (ESPELHO DO BLING)
+                            # =========================================================
+                            st.markdown("---")
+                            st.subheader("📋 Espelho de Conferência da Nota Fiscal (Bling)")
+                            st.info("Compare os números abaixo diretamente com a tela da NFe de Entrada que o Bling carregar:")
+                            
+                            m_col1, m_col2, m_col3 = st.columns(3)
+                            m_col1.metric("📦 Valor dos Produtos (vProd)", f"R$ {soma_prod_brl:,.2f}")
+                            m_col2.metric("🏛️ Imposto ICMS (vICMS)", f"R$ {soma_icms:,.2f}")
+                            m_col3.metric("💰 TOTAL DA NOTA (vNF)", f"R$ {v_nf_total:,.2f}")
+
+                            m_sub1, m_sub2, m_sub3 = st.columns(3)
+                            m_sub1.metric("Imposto Importação (II)", f"R$ {soma_ii:,.2f}")
+                            m_sub2.metric("Outras Despesas (vOutro)", f"R$ {soma_outras:,.2f}")
+                            m_sub3.metric("🏷️ ID do Pedido (xPed)", codigo_operacao_caasi)
+
+                            # Tabela rápida detalhando a composição
+                            df_espelho = pd.DataFrame([
+                                {"Campo na NF-e": "Total dos Produtos (vProd)", "Valor (R$)": f"{soma_prod_brl:.2f}", "O que compõe": "Mercadoria + Frete Internacional Rateado"},
+                                {"Campo na NF-e": "Imposto de Importação (vII)", "Valor (R$)": f"{soma_ii:.2f}", "O que compõe": "II apurado na DIR da Receita Federal"},
+                                {"Campo na NF-e": "ICMS / GNRE (vICMS)", "Valor (R$)": f"{soma_icms:.2f}", "O que compõe": f"Base R$ {soma_bc_icms:.2f} com aliq. efetiva {ALIQUOTA_EFETIVA_ICMS:.2f}%"},
+                                {"Campo na NF-e": "Outras Despesas (vOutro)", "Valor (R$)": f"{soma_outras:.2f}", "O que compõe": "Taxas courier (aeroporto, adm) + CBS/IBS se houver"},
+                                {"Campo na NF-e": "VALOR TOTAL DA NOTA (vNF)", "Valor (R$)": f"{v_nf_total:.2f}", "O que compõe": "Soma de Todos os Campos Acima (Total Faturado no Bling)"}
+                            ])
+                            st.table(df_espelho)
+
                             st.download_button(
-                                label="📥 Baixar XML para Bling", 
+                                label=f"📥 Baixar XML para o Bling ({codigo_operacao_caasi})", 
                                 data=xml_saida, 
                                 file_name=f"XML_{codigo_operacao_caasi}.xml", 
                                 mime="text/xml", 
-                                type="primary"
+                                type="primary",
+                                use_container_width=True
                             )
 
                     except Exception as e:

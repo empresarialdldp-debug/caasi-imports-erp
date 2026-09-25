@@ -289,7 +289,7 @@ elif menu == "2. 🗃️ Masterdata (Produtos)":
 
     st.dataframe(df_masterdata, use_container_width=True)
 # ==============================================================================
-# MÓDULO 3: PORTAL DE ENTRADA XML (100% PyPDF2 + PARSER RESILIENTE)
+# MÓDULO 3: PORTAL DE ENTRADA XML (COM OCR NATIVO GEMINI - VISÃO MULTIMODAL)
 # ==============================================================================
 elif menu == "3. 🛠️ Portal de XML (Bling)":
     st.title("🛠️ Portal de Integração Bling")
@@ -329,15 +329,12 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
 
     with aba2:
         st.markdown("### Geração Profissional de XML para Importação Simplificada (DIR)")
-        st.markdown("Extração automatizada via PyPDF2 da DIR (Receita Federal) e Fatura de Cobrança (FedEx/UPS).")
-        
-        if not pypdf_installed:
-            st.error("⚠️ ERRO CRÍTICO: Pacote 'PyPDF2' não encontrado no ambiente.")
+        st.markdown("Auditoria com visão computacional (OCR) dos PDFs da DIR e Fatura da Transportadora (FedEx/UPS).")
         
         col_up1, col_up2, col_up3 = st.columns(3)
         uploaded_csv = col_up1.file_uploader("1. Excel (Invoice)", type=['xlsx', 'csv'])
         uploaded_dir = col_up2.file_uploader("2. PDF da DIR (Receita Federal)", type=['pdf'])
-        uploaded_recibo = col_up3.file_uploader("3. PDF da Fatura de Impostos (FedEx/UPS)", type=['pdf'])
+        uploaded_recibo = col_up3.file_uploader("3. PDF da Fatura de Cobrança (FedEx/UPS)", type=['pdf'])
         
         col_conf1, col_conf2 = st.columns(2)
         if 'numero_nfe_atual' not in st.session_state:
@@ -346,66 +343,70 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
         numero_nfe = col_conf1.number_input("Número da NFe (Entrada Bling)", value=st.session_state['numero_nfe_atual'], step=1)
         tag_lote_marcelo = col_conf2.text_input(
             "🏷️ Identificador Exclusivo do Marcelo (Lote/Referência)", 
-            value=f"IMP-{datetime.now().strftime('%y%m')}",
+            value=f"SIMP4-{datetime.now().strftime('%y%m')}",
             help="Gravado em <xPed> e nas observações para localização direta no Bling."
         )
 
         if uploaded_csv and uploaded_dir and uploaded_recibo:
             if st.button("🚀 Extrair Dados Aduaneiros e Gerar XML (Padrão Bling)", type="primary", use_container_width=True):
                 if not ia_configurada:
-                    st.error("A Inteligência Artificial precisa de estar configurada para processar a auditoria.")
+                    st.error("A Inteligência Artificial precisa de estar configurada nos Secrets para efetuar a leitura visual dos PDFs.")
                 else:
                     try:
-                        with st.spinner("A extrair dados com PyPDF2 e a processar com a IA..."):
-                            # 1. Leitura completa com PyPDF2 (sem cortes)
-                            texto_dir = ""
-                            leitor_dir = PyPDF2.PdfReader(uploaded_dir)
-                            for page in leitor_dir.pages:
-                                extr = page.extract_text()
-                                if extr: texto_dir += extr + "\n"
+                        with st.spinner("A processar documentos com Visão Computacional (OCR Nativo)..."):
+                            # 1. Captura direta dos bytes binários dos PDFs para o Gemini enxergar visualmente
+                            uploaded_dir.seek(0)
+                            bytes_dir = uploaded_dir.read()
                             
-                            texto_recibo = ""
-                            leitor_recibo = PyPDF2.PdfReader(uploaded_recibo)
-                            for page in leitor_recibo.pages:
-                                extr = page.extract_text()
-                                if extr: texto_recibo += extr + "\n"
+                            uploaded_recibo.seek(0)
+                            bytes_recibo = uploaded_recibo.read()
 
-                            # 2. IA Audita os Textos com Instruções Específicas para o PyPDF2
+                            part_dir = {"mime_type": "application/pdf", "data": bytes_dir}
+                            part_recibo = {"mime_type": "application/pdf", "data": bytes_recibo}
+
+                            # 2. Prompt direcionado à análise visual dos dois anexos
                             model = genai.GenerativeModel('gemini-2.5-flash')
-                            prompt = f"""
-                            Aja como um auditor fiscal aduaneiro. Analise com atenção o texto bruto extraído via biblioteca PyPDF2 de dois documentos:
+                            prompt = """
+                            Você é um auditor fiscal de comércio exterior. Analise visualmente os DOIS PDFs anexados:
+                            - O primeiro PDF é a DECLARAÇÃO DE IMPORTAÇÃO DE REMESSA (DIR da Receita Federal).
+                            - O segundo PDF é a FATURA DE COBRANÇA / DISCRIMINAÇÃO DA COBRANÇA da transportadora (FedEx / UPS).
 
-                            === TEXTO 1: DECLARAÇÃO DE IMPORTAÇÃO DE REMESSA (DIR - RECEITA FEDERAL) ===
-                            {texto_dir}
+                            REGRAS MANDATÓRIAS DE LEITURA FISCAL:
+                            1. ICMS: O valor do ICMS NUNCA é retirado da DIR.
+                               Localize no SEGUNDO PDF (FedEx/UPS) a tabela "DISCRIMINAÇÃO DA COBRANÇA" e extraia o valor do item:
+                               "3) Impostos ICMS" ou campo "ICMS/GNRE" (Exemplo real: 2131.58).
+                            2. NÃO confunda "IBS Estadual" com "ICMS". O IBS Estadual está na DIR (tabela Dados de Impostos da Receita Federal) e NÃO é o ICMS.
+                            3. Do PRIMEIRO PDF (DIR da Receita Federal), extraia:
+                               - II (Imposto de Importação)
+                               - CBS (se existir na tabela de impostos, senão 0.0)
+                               - IBS Estadual e IBS Municipal (se existir na tabela de impostos, senão 0.0)
+                               - Número da DIR, Data do Desembaraço, Local, UF, Valor Frete BRL e Taxa do Dólar.
+                            4. Do SEGUNDO PDF (Fatura FedEx/UPS), além do ICMS, some as despesas operacionais da transportadora:
+                               - Despesas de Desembaraço Alfandegário / Administrativas
+                               - Reembolso Infraero / Aeroporto
+                               - Taxa Serasa
+                               (Exemplo: 130.95 + 175.42 + 3.91 = 310.28).
 
-                            === TEXTO 2: DISCRIMINAÇÃO DE COBRANÇA DA TRANSPORTADORA (FEDEX / UPS) ===
-                            {texto_recibo}
-
-                            INSTRUÇÕES CRÍTICAS DE EXTRAÇÃO DO PyPDF2:
-                            - No TEXTO 2 (FedEx/UPS), o PyPDF2 costuma listar os nomes dos campos primeiro e os valores monetários mais abaixo ou em tabelas separadas. Procure linhas com "Impostos ICMS" ou "ICMS/GNRE" ou linhas com valores em R$ seguidos de percentagem como "R$ 2.137,55 (25%)" ou "3) Impostos ICMS R$ 2131.58".
-                            - O ICMS NUNCA é retirado da DIR.
-                            - NÃO confunda "IBS Estadual" (que está no TEXTO 1 da DIR) com "ICMS".
-                            - Do TEXTO 1 (DIR), extraia: II (Imposto de Importação), CBS (se existir), IBS Estadual e Municipal (se existir), Número da DIR, Data, Local e Taxa do Câmbio.
-                            - Do TEXTO 2 (FedEx/UPS), extraia: o ICMS real e a soma de todas as despesas da transportadora (Despesas de Desembaraço/Administrativas + Infraero/Aeroporto + Serasa).
-
-                            Retorne ESTRITAMENTE um JSON com as chaves:
-                            {{
+                            Retorne ESTRITAMENTE um JSON com as seguintes chaves numéricas e textuais:
+                            {
                                 "numero_dir": (string com os números da DIR),
                                 "data_desembaraco": (string formato YYYY-MM-DD),
                                 "local_desembaraco": (string),
                                 "uf_desembaraco": (string),
-                                "valor_frete_brl": (float, frete em R$),
-                                "taxa_dolar": (float, taxa de câmbio),
-                                "nome_fornecedor": (string, exportador estrangeiro),
-                                "valor_ii_brl": (float, campo II da DIR),
-                                "valor_cbs_brl": (float, campo CBS da DIR se existir, senão 0.0),
-                                "valor_ibs_brl": (float, soma de IBS Estadual + Municipal da DIR se existir, senão 0.0),
-                                "valor_icms_brl": (float, valor numérico do ICMS cobrado no TEXTO 2),
-                                "base_icms_brl": (float, base de cálculo do ICMS se informada no TEXTO 2, senão 0.0),
-                                "outras_despesas_brl": (float, soma das despesas operacionais da FedEx do TEXTO 2)
-                            }}
+                                "valor_frete_brl": (float, valor do frete internacional em R$),
+                                "taxa_dolar": (float, taxa de câmbio informada na DIR),
+                                "nome_fornecedor": (string, empresa exportadora estrangeira),
+                                "valor_ii_brl": (float, II apurado na DIR),
+                                "valor_cbs_brl": (float, CBS apurada na DIR se houver, senão 0.0),
+                                "valor_ibs_brl": (float, soma de IBS Estadual + Municipal da DIR se houver, senão 0.0),
+                                "valor_icms_brl": (float, valor exato da linha Impostos ICMS da fatura FedEx/UPS),
+                                "base_icms_brl": (float, base do ICMS indicada na transportadora se houver, senão 0.0),
+                                "outras_despesas_brl": (float, soma das despesas operacionais da transportadora)
+                            }
                             """
-                            resposta = model.generate_content(prompt)
+                            
+                            # Envio multimodal: o Gemini recebe o prompt e os dois PDFs como imagens/documentos
+                            resposta = model.generate_content([prompt, part_dir, part_recibo])
                             
                             json_str = resposta.text
                             match = re.search(r'```json(.*?)```', json_str, re.DOTALL)
@@ -415,7 +416,8 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             dados_dir = json.loads(json_str.strip())
                             codigo_operacao_caasi = f"{tag_lote_marcelo}-DIR{dados_dir.get('numero_dir', '')}"
 
-                            # 3. Leitura do Excel da Invoice
+                            # 3. Leitura e Cruzamento com a Invoice (Excel)
+                            uploaded_csv.seek(0)
                             df_inv = pd.read_excel(uploaded_csv) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv)
                             start_row = -1
                             for i, row in df_inv.iterrows():
@@ -429,6 +431,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                     break
                             
                             if start_row != -1:
+                                uploaded_csv.seek(0)
                                 df_inv = pd.read_excel(uploaded_csv, skiprows=start_row+1) if uploaded_csv.name.endswith('.xlsx') else pd.read_csv(uploaded_csv, skiprows=start_row+1)
                             
                             cols = [str(c).upper().strip() for c in df_inv.columns]
@@ -450,44 +453,16 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             
                             total_produtos_usd = df_inv[col_total].astype(float).sum()
                             
-                            # 4. Atribuição de Valores com Verificação Direta de Contingência
+                            # 4. Totalizadores Oficiais
                             TOTAL_FRETE_BRL = float(dados_dir.get('valor_frete_brl', 0.0))
                             TOTAL_II_BRL = float(dados_dir.get('valor_ii_brl', 0.0))
                             TOTAL_CBS_BRL = float(dados_dir.get('valor_cbs_brl', 0.0))
                             TOTAL_IBS_BRL = float(dados_dir.get('valor_ibs_brl', 0.0))
                             TOTAL_ICMS_BRL = float(dados_dir.get('valor_icms_brl', 0.0))
                             TAXA_DOLAR = float(dados_dir.get('taxa_dolar', 5.0))
-                            despesas_fedex = float(dados_dir.get('outras_despesas_brl', 0.0))
+                            despesas_transportadora = float(dados_dir.get('outras_despesas_brl', 0.0))
 
-                            # Salvaguarda: se a IA devolveu 0.0 no ICMS, varre diretamente o texto lido pelo PyPDF2 à procura do padrão
-                            if TOTAL_ICMS_BRL == 0.0:
-                                match_icms1 = re.search(r'3\)\s*Impostos\s*ICMS[^\d]*([\d.,]+)', texto_recibo, re.IGNORECASE)
-                                match_icms2 = re.search(r'ICMS/GNRE:[^\n\r]*[\r\n]+.*?R\$\s*([\d.,]+)', texto_recibo, re.DOTALL)
-                                match_icms3 = re.search(r'R\$\s*([\d.,]+)\s*\(\s*(?:25|17)%\s*\)', texto_recibo)
-                                
-                                if match_icms1:
-                                    val_str = match_icms1.group(1).replace('.', '').replace(',', '.')
-                                    TOTAL_ICMS_BRL = float(val_str)
-                                elif match_icms2:
-                                    val_str = match_icms2.group(1).replace('.', '').replace(',', '.')
-                                    TOTAL_ICMS_BRL = float(val_str)
-                                elif match_icms3:
-                                    val_str = match_icms3.group(1).replace('.', '').replace(',', '.')
-                                    TOTAL_ICMS_BRL = float(val_str)
-
-                            if despesas_fedex == 0.0:
-                                # Tenta somar valores típicos do texto da FedEx se a IA omitiu
-                                val_desp = 0.0
-                                m_adm = re.search(r'Despesas\s*Administrativas:[^\d]*([\d.,]+)', texto_recibo, re.IGNORECASE)
-                                m_aero = re.search(r'Reembolso\s*Aeroporto[^\d]*([\d.,]+)', texto_recibo, re.IGNORECASE) or re.search(r'Reembolso\s*Infraero[^\d]*([\d.,]+)', texto_recibo, re.IGNORECASE)
-                                m_serasa = re.search(r'SERASA:[^\d]*([\d.,]+)', texto_recibo, re.IGNORECASE) or re.search(r'Pesquisa\s*Serasa[^\d]*([\d.,]+)', texto_recibo, re.IGNORECASE)
-                                
-                                if m_adm: val_desp += float(m_adm.group(1).replace('.', '').replace(',', '.'))
-                                if m_aero: val_desp += float(m_aero.group(1).replace('.', '').replace(',', '.'))
-                                if m_serasa: val_desp += float(m_serasa.group(1).replace('.', '').replace(',', '.'))
-                                if val_desp > 0: despesas_fedex = val_desp
-
-                            TOTAL_OUTRAS_BRL = despesas_fedex + TOTAL_CBS_BRL + TOTAL_IBS_BRL
+                            TOTAL_OUTRAS_BRL = despesas_transportadora + TOTAL_CBS_BRL + TOTAL_IBS_BRL
                             
                             BASE_ICMS_BRL = float(dados_dir.get('base_icms_brl', 0.0))
                             if BASE_ICMS_BRL == 0 and TOTAL_ICMS_BRL > 0:
@@ -495,7 +470,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 
                             ALIQUOTA_EFETIVA_ICMS = (TOTAL_ICMS_BRL / BASE_ICMS_BRL) * 100 if BASE_ICMS_BRL > 0 else 17.0
                             
-                            # 5. Geração da Estrutura XML da NF-e 4.00
+                            # 5. Construção do XML padrão NFe 4.00
                             nfe = ET.Element("NFe", xmlns="[http://www.portalfiscal.inf.br/nfe](http://www.portalfiscal.inf.br/nfe)")
                             chave_nfe = f"3126064410256200011155001{numero_nfe:09d}12345678"
                             infNFe = ET.SubElement(nfe, "infNFe", Id=f"NFe{chave_nfe}", versao="4.00")
@@ -618,6 +593,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(prod, "vOutro").text = f"{rateio_outras:.2f}"
                                 ET.SubElement(prod, "indTot").text = "1"
                                 
+                                # Código do Marcelo no campo Pedido de Compra do Item
                                 ET.SubElement(prod, "xPed").text = codigo_operacao_caasi[:15]
                                 ET.SubElement(prod, "nItemPed").text = str(idx+1)
                                 
@@ -653,6 +629,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(icmssn, "pCredSN").text = "0.00"
                                 ET.SubElement(icmssn, "vCredICMSSN").text = "0.00"
                                 
+                                # IPI
                                 ipi = ET.SubElement(imposto, "IPI")
                                 ET.SubElement(ipi, "cEnq").text = "999"
                                 ipitrib = ET.SubElement(ipi, "IPITrib")
@@ -661,6 +638,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 ET.SubElement(ipitrib, "pIPI").text = "0.00"
                                 ET.SubElement(ipitrib, "vIPI").text = "0.00"
                                 
+                                # II
                                 ii_tag = ET.SubElement(imposto, "II")
                                 ET.SubElement(ii_tag, "vBC").text = f"{vProd_brl:.2f}"
                                 ET.SubElement(ii_tag, "vDespAdu").text = "0.00"
@@ -735,7 +713,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 f"ID CONTROLE: {codigo_operacao_caasi} | DIR: {dados_dir['numero_dir']} "
                                 f"| CAMBIO USD: {TAXA_DOLAR:.4f} | II: R$ {soma_ii:.2f} | ICMS: R$ {soma_icms:.2f} "
                                 f"| CBS: R$ {TOTAL_CBS_BRL:.2f} | IBS: R$ {TOTAL_IBS_BRL:.2f} "
-                                f"| TAXAS FEDEX: R$ {despesas_fedex:.2f}"
+                                f"| TAXAS FEDEX: R$ {despesas_transportadora:.2f}"
                             )
                             ET.SubElement(infAdic, "infCpl").text = texto_obs[:500]
 
@@ -747,7 +725,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                             # =========================================================
                             st.markdown("---")
                             st.subheader("📋 Espelho de Conferência da Nota Fiscal (Bling)")
-                            st.info("Valores apurados a partir dos documentos para conferência direta no Bling:")
+                            st.info("Valores apurados via Visão Computacional para conferência direta no Bling:")
                             
                             m_col1, m_col2, m_col3 = st.columns(3)
                             m_col1.metric("📦 Valor dos Produtos (vProd)", f"R$ {soma_prod_brl:,.2f}")
@@ -763,7 +741,7 @@ elif menu == "3. 🛠️ Portal de XML (Bling)":
                                 {"Campo na NF-e": "Total dos Produtos (vProd)", "Valor (R$)": f"{soma_prod_brl:.2f}", "O que compõe": "Mercadoria + Frete Internacional Rateado"},
                                 {"Campo na NF-e": "Imposto de Importação (vII)", "Valor (R$)": f"{soma_ii:.2f}", "O que compõe": "II apurado na DIR da Receita Federal"},
                                 {"Campo na NF-e": "ICMS / GNRE (vICMS)", "Valor (R$)": f"{soma_icms:.2f}", "O que compõe": f"Base R$ {soma_bc_icms:.2f} com aliq. efetiva {ALIQUOTA_EFETIVA_ICMS:.2f}% (Fatura FedEx)"},
-                                {"Campo na NF-e": "Outras Despesas (vOutro)", "Valor (R$)": f"{soma_outras:.2f}", "O que compõe": f"Despesas FedEx (R$ {despesas_fedex:.2f}) + CBS (R$ {TOTAL_CBS_BRL:.2f}) + IBS (R$ {TOTAL_IBS_BRL:.2f})"},
+                                {"Campo na NF-e": "Outras Despesas (vOutro)", "Valor (R$)": f"{soma_outras:.2f}", "O que compõe": f"Despesas FedEx (R$ {despesas_transportadora:.2f}) + CBS (R$ {TOTAL_CBS_BRL:.2f}) + IBS (R$ {TOTAL_IBS_BRL:.2f})"},
                                 {"Campo na NF-e": "VALOR TOTAL DA NOTA (vNF)", "Valor (R$)": f"{v_nf_total:.2f}", "O que compõe": "Soma de Todos os Campos Acima (Total Faturado no Bling)"}
                             ])
                             st.table(df_espelho)
